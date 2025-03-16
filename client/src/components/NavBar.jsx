@@ -1,13 +1,13 @@
-
-
 import React, { useState } from 'react';
 import { Bell, Menu, X } from 'lucide-react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import shield from '../assets/shield.png';
+import UserInfo from './UserInfo';
+import { useAuth } from '../context/AuthContext';
 
 const NavBar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const navigate = useNavigate();
+  const { user } = useAuth();
 
   return (
     <nav className="navbar navbar-expand-md navbar-dark bg-primary shadow">
@@ -45,7 +45,6 @@ const NavBar = () => {
         <div className={`collapse navbar-collapse ${isMenuOpen ? 'show' : ''}`} id="navbarContent">
           <ul className="navbar-nav me-auto mb-2 mb-md-0">
             <li className="nav-item">
-
               <Link className="nav-link active" aria-current="page" to="/">Home</Link>
             </li>
             <li className="nav-item">
@@ -57,19 +56,18 @@ const NavBar = () => {
           </ul>
 
           <div className="d-flex align-items-center">
-            {/* Notification Icon */}
-            <div className="position-relative me-3 cursor-pointer">
-              <Bell size={22} className="text-white" />
-              <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                3<span className="visually-hidden">unread notifications</span>
-              </span>
-            </div>
+            {/* Notification Icon - Only show for logged-in users */}
+            {user && (
+              <div className="position-relative me-3 cursor-pointer">
+                <Bell size={22} className="text-white" />
+                <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                  3<span className="visually-hidden">unread notifications</span>
+                </span>
+              </div>
+            )}
 
-            {/* Auth Buttons */}
-            <div className="d-flex">
-              <button className="btn btn-outline-light me-2" onClick={() => navigate('/login')}>Login</button>
-              <button className="btn btn-warning" onClick={() => navigate('/register')}>Register</button>
-            </div>
+            {/* User Info Component */}
+            <UserInfo />
           </div>
         </div>
       </div>

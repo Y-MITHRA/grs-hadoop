@@ -1,7 +1,7 @@
 import React from "react";
 import "bootstrap/dist/css/bootstrap.min.css";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import GeneralContextProvider from "./context/GeneralContext";
+import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import GrievancePortal from "./components/GrievancePortal";
 import Login from "./pages/Login";
@@ -25,7 +25,7 @@ import SubmitGrievance from './pages/SubmitGrievance';
 function App() {
   return (
     <Router>
-      <GeneralContextProvider>
+      <AuthProvider>
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<GrievancePortal />} />
@@ -33,29 +33,33 @@ function App() {
           <Route path="/contact" element={<Contact />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
-          <Route path="/register/petitioner" element={<PetitionerRegistration />} />
-          <Route path="/register/official" element={<OfficialRegistration />} />
-          <Route path="/register/admin" element={<AdminRegistration />} />
           <Route path="/login/admin" element={<AdminLogin />} />
           <Route path="/login/official" element={<OfficialLogin />} />
           <Route path="/login/petitioner" element={<PetitionerLogin />} />
-          <Route path="/submit-grievance" element={<SubmitGrievance />} />
+          <Route path="/register/petitioner" element={<PetitionerRegistration />} />
+          <Route path="/register/official" element={<OfficialRegistration />} />
+          <Route path="/register/admin" element={<AdminRegistration />} />
 
-          <Route path="/login/petitioner/dashboard" element={<PetitionerDashboard />} />
+          {/* Protected Petitioner Routes */}
+          <Route element={<ProtectedRoute allowedRoles={['petitioner']} />}>
+            <Route path="/petitioner/dashboard" element={<PetitionerDashboard />} />
+            <Route path="/submit-grievance" element={<SubmitGrievance />} />
+          </Route>
 
-          <Route element={<ProtectedRoute allowedRoles={["official"]} />}>
+          {/* Protected Admin Routes */}
+          <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          </Route>
+
+          {/* Protected Official Routes */}
+          <Route element={<ProtectedRoute allowedRoles={['official']} />}>
             <Route path="/official-dashboard" element={<OfficialDashboard />} />
             <Route path="/official-dashboard/water" element={<WaterDashboard />} />
             <Route path="/official-dashboard/rto" element={<RTODashboard />} />
             <Route path="/official-dashboard/electricity" element={<ElectricityDashboard />} />
           </Route>
-
-
-
-
-          <Route path="/admin/dashboard" element={<AdminDashboard />} />
         </Routes>
-      </GeneralContextProvider>
+      </AuthProvider>
     </Router>
   );
 }

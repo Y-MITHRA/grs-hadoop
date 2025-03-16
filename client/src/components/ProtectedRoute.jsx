@@ -1,22 +1,18 @@
-// import React from "react";
-// import { Navigate, Outlet } from "react-router-dom";
-
-// const ProtectedRoute = ({ allowedRoles }) => {
-//     const userType = localStorage.getItem("userType"); // Get user role from localStorage
-
-//     return allowedRoles.includes(userType) ? <Outlet /> : <Navigate to="/login" />;
-// };
-
-// export default ProtectedRoute;
 import React from "react";
 import { Navigate, Outlet } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const ProtectedRoute = ({ allowedRoles }) => {
-    const token = localStorage.getItem("token");  // ✅ Token Check
-    const userType = localStorage.getItem("userType");  // ✅ Role Check
+    const { user } = useAuth();
 
-    if (!token || !allowedRoles.includes(userType)) {
+    if (!user) {
+        // Not logged in
         return <Navigate to="/login" replace />;
+    }
+
+    if (!allowedRoles.includes(user.userType)) {
+        // User's role is not authorized
+        return <Navigate to="/" replace />;
     }
 
     return <Outlet />;
