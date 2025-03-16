@@ -56,21 +56,34 @@ const PetitionerLogin = () => {
             const data = await response.json();
 
             if (response.ok) {
-                // Use the AuthContext login function
-                login({
-                    token: data.token,
-                    userType: 'petitioner',
-                    email: formData.email,
-                    name: data.name || null
-                });
+                // Ensure we have all required data
+                if (!data.token) {
+                    setServerError("Server error: No token received");
+                    return;
+                }
 
-                // Redirect to petitioner dashboard
-                navigate(getRedirectPath('petitioner'));
+                // Format user data to match expected structure
+                const userData = {
+                    id: data.userId,
+                    role: 'petitioner',
+                    email: data.email,
+                    name: data.name
+                };
+
+                // Call login with correct parameters
+                await login(userData, data.token);
+
+                // Log success for debugging
+                console.log('Login successful');
+
+                // Redirect to dashboard
+                navigate('/petitioner/dashboard');
             } else {
                 setServerError(data.message || "Login failed");
             }
         } catch (error) {
-            setServerError("Server error. Please try again later.");
+            console.error('Login error:', error);
+            setServerError(error.message || "Server error. Please try again later.");
         }
     };
 

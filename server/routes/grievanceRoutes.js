@@ -1,121 +1,330 @@
-const express = require('express');
-const router = express.Router();
-const auth = require('../middleware/auth');
-const Grievance = require('../models/Grievance');
-const multer = require('multer');
-const path = require('path');
+import express from 'express';
+import auth from '../middleware/auth.js';
+import Grievance from '../models/Grievance.js';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import Official from '../models/Official.js';
+import fs from 'fs';
 
-// Configure multer for file uploads
+const router = express.Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Configure multer for file upload
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, 'uploads/');
+        const uploadDir = path.join(__dirname, '../uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
     },
     filename: function (req, file, cb) {
-        cb(null, Date.now() + path.extname(file.originalname));
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
-const upload = multer({ 
+const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
-        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-        const mimetype = allowedTypes.test(file.mimetype);
-        
-        if (extname && mimetype) {
-            return cb(null, true);
+    limits: {
+        fileSize: 5 * 1024 * 1024 // 5MB limit
+    },
+    fileFilter: function (req, file, cb) {
+        const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPEG, PNG, PDF, DOC, and DOCX files are allowed.'));
         }
-        cb(new Error('Invalid file type. Only JPEG, PNG, PDF, and DOC files are allowed.'));
     }
 });
 
 // Submit a new grievance
 router.post('/submit', auth, upload.single('attachment'), async (req, res) => {
     try {
-        const { title, department, description } = req.body;
-        
-        if (!title || !department || !description) {
-            return res.status(400).json({ 
-                message: 'Missing required fields',
-                details: {
-                    title: !title ? 'Title is required' : null,
-                    department: !department ? 'Department is required' : null,
-                    description: !description ? 'Description is required' : null
-                }
+        const { title, description, department } = req.body;
+
+        // Debug logging
+        console.log('Request body:', req.body);
+        console.log('User object:', req.user);
+        console.log('File:', req.file);
+
+        // Validate required fields
+        if (!title || !description || !department) {
+            return res.status(400).json({ message: 'Please provide all required fields' });
+        }
+
+        // Validate user data
+        if (!req.user || !req.user.id || !req.user.email) {
+            console.error('Missing user data:', req.user);
+            return res.status(400).json({
+                message: 'User data is incomplete',
+                userData: req.user
             });
         }
 
-        // Generate a unique petition ID (e.g., PET-2024-001)
-        const count = await Grievance.countDocuments();
-        const petitionId = `PET-${new Date().getFullYear()}-${(count + 1).toString().padStart(3, '0')}`;
-        
-        const grievance = new Grievance({
+        const petitionId = `PET${Date.now()}`;
+
+        // Ensure we have the user's name
+        const petitionerName = req.user.name ||
+            (req.user._raw?.firstName && req.user._raw?.lastName
+                ? `${req.user._raw.firstName} ${req.user._raw.lastName}`.trim()
+                : req.user.email.split('@')[0]);
+
+        // Create grievance object with explicit type conversion
+        const grievanceData = {
             petitionId,
             title,
-            department,
             description,
-            attachment: req.file ? req.file.path : null,
+            department,
             petitioner: {
-                name: req.user.name,
+                name: petitionerName,
                 email: req.user.email,
-                userId: req.user._id
+                userId: req.user.id.toString() // Ensure it's a string
             },
-            status: 'pending'
-        });
+            attachment: req.file ? req.file.path : null,
+            status: 'pending' // Using valid enum value
+        };
 
-        await grievance.save();
-        
-        console.log('Grievance submitted successfully:', {
-            petitionId: grievance.petitionId,
-            title: grievance.title,
-            department: grievance.department,
-            petitioner: grievance.petitioner.name
-        });
+        console.log('Creating grievance with data:', grievanceData);
 
-        res.status(201).json({ 
+        const newGrievance = new Grievance(grievanceData);
+
+        // Validate before saving
+        const validationError = newGrievance.validateSync();
+        if (validationError) {
+            console.error('Validation error before save:', validationError);
+            return res.status(400).json({
+                message: 'Validation error',
+                errors: validationError.errors
+            });
+        }
+
+        await newGrievance.save();
+        console.log('Grievance saved successfully:', newGrievance._id);
+
+        res.status(201).json({
             message: 'Grievance submitted successfully',
-            petitionId: grievance.petitionId 
+            petitionId,
+            grievanceId: newGrievance._id
         });
     } catch (error) {
         console.error('Error submitting grievance:', error);
-        
-        // Check for validation errors
-        if (error.name === 'ValidationError') {
-            return res.status(400).json({ 
-                message: 'Validation error',
-                details: Object.keys(error.errors).reduce((acc, key) => {
-                    acc[key] = error.errors[key].message;
-                    return acc;
-                }, {})
-            });
-        }
-        
-        res.status(500).json({ message: 'Error submitting grievance. Please try again later.' });
+        res.status(500).json({
+            message: 'Error submitting grievance',
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 
-// Get all grievances for a petitioner
-router.get('/petitioner', auth, async (req, res) => {
+// Get grievances for a department
+router.get('/department/:dept/:status', auth, async (req, res) => {
     try {
-        const grievances = await Grievance.find({
-            'petitioner.userId': req.user._id
-        }).sort({ createdAt: -1 });
+        const { dept, status } = req.params;
+        const query = { department: dept.toLowerCase() };
 
-        res.json(grievances);
+        if (status === 'unassigned') {
+            query.status = 'unassigned';
+            query.declinedBy = { $not: { $elemMatch: { officialId: req.user._id } } };
+        } else if (status === 'assigned') {
+            query.status = 'assigned';
+            query.assignedTo = req.user._id;
+        } else if (status === 'closed') {
+            query.status = 'closed';
+            query.assignedTo = req.user._id;
+        } else if (status === 'myQueries') {
+            query.$or = [
+                { assignedTo: req.user._id },
+                { 'declinedBy.officialId': req.user._id }
+            ];
+        }
+
+        const grievances = await Grievance.find(query)
+            .populate('petitioner', 'name email')
+            .populate('assignedTo', 'name email')
+            .sort({ createdAt: -1 });
+
+        // Get statistics
+        const stats = {
+            unassigned: await Grievance.countDocuments({
+                department: dept.toLowerCase(),
+                status: 'unassigned',
+                declinedBy: { $not: { $elemMatch: { officialId: req.user._id } } }
+            }),
+            assigned: await Grievance.countDocuments({
+                department: dept.toLowerCase(),
+                status: 'assigned',
+                assignedTo: req.user._id
+            }),
+            closed: await Grievance.countDocuments({
+                department: dept.toLowerCase(),
+                status: 'closed',
+                assignedTo: req.user._id
+            }),
+            myQueries: await Grievance.countDocuments({
+                department: dept.toLowerCase(),
+                $or: [
+                    { assignedTo: req.user._id },
+                    { 'declinedBy.officialId': req.user._id }
+                ]
+            })
+        };
+
+        res.json({ grievances, stats });
     } catch (error) {
         console.error('Error fetching grievances:', error);
         res.status(500).json({ message: 'Error fetching grievances' });
     }
 });
 
-// Get a specific grievance by ID
-router.get('/:id', auth, async (req, res) => {
+// Accept a grievance
+router.post('/:petitionId/accept', auth, async (req, res) => {
     try {
-        const grievance = await Grievance.findOne({
-            petitionId: req.params.id,
-            'petitioner.userId': req.user._id
+        const grievance = await Grievance.findOne({ petitionId: req.params.petitionId });
+
+        if (!grievance) {
+            return res.status(404).json({ message: 'Grievance not found' });
+        }
+
+        if (grievance.status !== 'unassigned') {
+            return res.status(400).json({ message: 'Grievance is already assigned or closed' });
+        }
+
+        grievance.status = 'assigned';
+        grievance.assignedTo = req.user._id;
+        grievance.assignedAt = new Date();
+        grievance.notifications.push({
+            message: `Grievance assigned to ${req.user.name}`,
+            timestamp: new Date()
         });
+
+        await grievance.save();
+        res.json({ message: 'Grievance accepted successfully' });
+    } catch (error) {
+        console.error('Error accepting grievance:', error);
+        res.status(500).json({ message: 'Error accepting grievance' });
+    }
+});
+
+// Decline a grievance
+router.post('/:petitionId/decline', auth, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        if (!reason) {
+            return res.status(400).json({ message: 'Please provide a reason for declining' });
+        }
+
+        const grievance = await Grievance.findOne({ petitionId: req.params.petitionId });
+
+        if (!grievance) {
+            return res.status(404).json({ message: 'Grievance not found' });
+        }
+
+        if (grievance.status !== 'unassigned') {
+            return res.status(400).json({ message: 'Grievance is already assigned or closed' });
+        }
+
+        grievance.declinedBy.push({
+            officialId: req.user._id,
+            name: req.user.name,
+            reason,
+            timestamp: new Date()
+        });
+
+        grievance.notifications.push({
+            message: `Grievance declined by ${req.user.name}: ${reason}`,
+            timestamp: new Date()
+        });
+
+        // Find next available official
+        const nextOfficial = await Official.findOne({
+            department: grievance.department,
+            _id: { $nin: grievance.declinedBy.map(d => d.officialId) }
+        });
+
+        if (!nextOfficial) {
+            grievance.status = 'escalated';
+            grievance.notifications.push({
+                message: 'Grievance escalated: No available officials',
+                timestamp: new Date()
+            });
+        }
+
+        await grievance.save();
+        res.json({ message: 'Grievance declined successfully' });
+    } catch (error) {
+        console.error('Error declining grievance:', error);
+        res.status(500).json({ message: 'Error declining grievance' });
+    }
+});
+
+// Add chat message
+router.post('/:petitionId/chat', auth, async (req, res) => {
+    try {
+        const { message } = req.body;
+        if (!message) {
+            return res.status(400).json({ message: 'Please provide a message' });
+        }
+
+        const grievance = await Grievance.findOne({ petitionId: req.params.petitionId });
+
+        if (!grievance) {
+            return res.status(404).json({ message: 'Grievance not found' });
+        }
+
+        grievance.chatMessages.push({
+            sender: {
+                id: req.user._id,
+                name: req.user.name,
+                role: req.user.role
+            },
+            message,
+            timestamp: new Date()
+        });
+
+        await grievance.save();
+        res.json({ message: 'Chat message added successfully' });
+    } catch (error) {
+        console.error('Error adding chat message:', error);
+        res.status(500).json({ message: 'Error adding chat message' });
+    }
+});
+
+// Get chat messages
+router.get('/:petitionId/chat', auth, async (req, res) => {
+    try {
+        const grievance = await Grievance.findOne({ petitionId: req.params.petitionId });
+
+        if (!grievance) {
+            return res.status(404).json({ message: 'Grievance not found' });
+        }
+
+        // Mark messages as read
+        grievance.chatMessages = grievance.chatMessages.map(msg => {
+            if (msg.sender.id.toString() !== req.user._id.toString()) {
+                msg.read = true;
+            }
+            return msg;
+        });
+
+        await grievance.save();
+        res.json({ messages: grievance.chatMessages });
+    } catch (error) {
+        console.error('Error fetching chat messages:', error);
+        res.status(500).json({ message: 'Error fetching chat messages' });
+    }
+});
+
+// Get grievance details
+router.get('/:petitionId', auth, async (req, res) => {
+    try {
+        const grievance = await Grievance.findOne({ petitionId: req.params.petitionId })
+            .populate('petitioner', 'name email')
+            .populate('assignedTo', 'name email');
 
         if (!grievance) {
             return res.status(404).json({ message: 'Grievance not found' });
@@ -123,9 +332,9 @@ router.get('/:id', auth, async (req, res) => {
 
         res.json(grievance);
     } catch (error) {
-        console.error('Error fetching grievance:', error);
-        res.status(500).json({ message: 'Error fetching grievance' });
+        console.error('Error fetching grievance details:', error);
+        res.status(500).json({ message: 'Error fetching grievance details' });
     }
 });
 
-module.exports = router; 
+export default router; 

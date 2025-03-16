@@ -13,7 +13,7 @@ const NavBar = () => {
     <nav className="navbar navbar-expand-md navbar-dark bg-primary shadow">
       <div className="container">
         {/* Logo */}
-        <a className="navbar-brand d-flex align-items-center" href="#">
+        <Link to="/" className="navbar-brand d-flex align-items-center text-white" style={{ textDecoration: 'none' }}>
           <img
             src={shield}
             alt="Logo"
@@ -23,11 +23,9 @@ const NavBar = () => {
             style={{ borderRadius: '4px' }}
           />
           <span className="fw-bold d-none d-md-inline">
-            <Link to="/" className="text-white" style={{ textDecoration: 'none' }}>
-              Grievance Portal
-            </Link>
+            Grievance Portal
           </span>
-        </a>
+        </Link>
 
         {/* Mobile Menu Button */}
         <button

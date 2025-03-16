@@ -3,12 +3,13 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Footer from "../shared/Footer";
 import NavBar from "../components/NavBar";
-import { Plus, Search, Filter, RefreshCw } from "lucide-react";
+import { Plus, Search, Filter, RefreshCw, Eye, MessageCircle, AlertCircle } from "lucide-react";
+import moment from 'moment';
 
 const PetitionerDashboard = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { user } = useAuth();
+    const { user, authenticatedFetch } = useAuth();
     const [grievances, setGrievances] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -16,6 +17,14 @@ const PetitionerDashboard = () => {
     const [filterStatus, setFilterStatus] = useState("all");
     const [message, setMessage] = useState(location.state?.message || null);
     const [messageType] = useState(location.state?.type || 'info');
+    const [stats, setStats] = useState({
+        total: 0,
+        pending: 0,
+        inProgress: 0,
+        resolved: 0
+    });
+    const [activeTab, setActiveTab] = useState('all');
+    const [filteredGrievances, setFilteredGrievances] = useState([]);
 
     useEffect(() => {
         fetchGrievances();
@@ -25,22 +34,38 @@ const PetitionerDashboard = () => {
         }
     }, []);
 
+    useEffect(() => {
+        const filtered = grievances.filter(grievance =>
+            grievance.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            grievance.petitionId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            grievance.department.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        setFilteredGrievances(filtered);
+    }, [searchTerm, grievances]);
+
     const fetchGrievances = async () => {
+        setLoading(true);
+        setError('');
         try {
-            const response = await fetch('http://localhost:5000/api/grievances/petitioner', {
-                headers: {
-                    'Authorization': `Bearer ${user.token}`
-                }
-            });
+            const response = await authenticatedFetch(`http://localhost:5000/api/grievances/user/${user.id}${activeTab !== 'all' ? `?status=${activeTab}` : ''}`);
             const data = await response.json();
-            
+
             if (response.ok) {
-                setGrievances(data);
+                setGrievances(data.grievances);
+                setStats(data.stats);
             } else {
                 setError(data.message || 'Failed to fetch grievances');
             }
         } catch (error) {
-            setError('Error fetching grievances. Please try again later.');
+            console.error('Error fetching grievances:', error);
+            if (error.message === 'No authentication token available') {
+                setError('Your session has expired. Please log in again.');
+                setTimeout(() => {
+                    navigate('/login/petitioner');
+                }, 2000);
+            } else {
+                setError('Failed to fetch grievances. Please try again later.');
+            }
         } finally {
             setLoading(false);
         }
@@ -50,17 +75,6 @@ const PetitionerDashboard = () => {
         setLoading(true);
         fetchGrievances();
     };
-
-    const filteredGrievances = grievances
-        .filter(grievance => {
-            if (filterStatus === "all") return true;
-            return grievance.status.toLowerCase() === filterStatus;
-        })
-        .filter(grievance =>
-            grievance.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            grievance.petitionId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            grievance.department.toLowerCase().includes(searchTerm.toLowerCase())
-        );
 
     const getStatusBadgeClass = (status) => {
         switch (status.toLowerCase()) {
@@ -72,9 +86,15 @@ const PetitionerDashboard = () => {
                 return 'bg-primary';
             case 'resolved':
                 return 'bg-success';
+            case 'declined':
+                return 'bg-danger';
             default:
                 return 'bg-secondary';
         }
+    };
+
+    const handleViewDetails = (petitionId) => {
+        navigate(`/grievance/${petitionId}`);
     };
 
     return (
@@ -97,21 +117,82 @@ const PetitionerDashboard = () => {
                 {message && (
                     <div className={`alert alert-${messageType} alert-dismissible fade show`} role="alert">
                         {message}
-                        <button 
-                            type="button" 
-                            className="btn-close" 
+                        <button
+                            type="button"
+                            className="btn-close"
                             onClick={() => setMessage(null)}
                         ></button>
                     </div>
                 )}
 
-                {/* Filters and Search */}
+                {/* Stats Section */}
                 <div className="row mb-4">
-                    <div className="col-md-6 mb-3 mb-md-0">
+                    <div className="col-md-3">
+                        <div className="card bg-primary text-white">
+                            <div className="card-body">
+                                <h5 className="card-title">Total Grievances</h5>
+                                <h2 className="card-text">{stats.total}</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="col-md-3">
+                        <div className="card bg-warning text-dark">
+                            <div className="card-body">
+                                <h5 className="card-title">Pending</h5>
+                                <h2 className="card-text">{stats.pending}</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="col-md-3">
+                        <div className="card bg-info text-white">
+                            <div className="card-body">
+                                <h5 className="card-title">In Progress</h5>
+                                <h2 className="card-text">{stats.inProgress}</h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="col-md-3">
+                        <div className="card bg-success text-white">
+                            <div className="card-body">
+                                <h5 className="card-title">Resolved</h5>
+                                <h2 className="card-text">{stats.resolved}</h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Actions Section */}
+                <div className="row mb-4">
+                    <div className="col-md-8">
+                        <div className="btn-group" role="group">
+                            <button
+                                className={`btn ${activeTab === 'all' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                onClick={() => setActiveTab('all')}
+                            >
+                                All
+                            </button>
+                            <button
+                                className={`btn ${activeTab === 'pending' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                onClick={() => setActiveTab('pending')}
+                            >
+                                Pending
+                            </button>
+                            <button
+                                className={`btn ${activeTab === 'in-progress' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                onClick={() => setActiveTab('in-progress')}
+                            >
+                                In Progress
+                            </button>
+                            <button
+                                className={`btn ${activeTab === 'resolved' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                onClick={() => setActiveTab('resolved')}
+                            >
+                                Resolved
+                            </button>
+                        </div>
+                    </div>
+                    <div className="col-md-4">
                         <div className="input-group">
-                            <span className="input-group-text">
-                                <Search size={18} />
-                            </span>
                             <input
                                 type="text"
                                 className="form-control"
@@ -119,40 +200,17 @@ const PetitionerDashboard = () => {
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
+                            <button className="btn btn-outline-secondary" type="button">
+                                <i className="bi bi-search"></i>
+                            </button>
                         </div>
-                    </div>
-                    <div className="col-md-4">
-                        <div className="input-group">
-                            <span className="input-group-text">
-                                <Filter size={18} />
-                            </span>
-                            <select
-                                className="form-select"
-                                value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value)}
-                            >
-                                <option value="all">All Status</option>
-                                <option value="pending">Pending</option>
-                                <option value="assigned">Assigned</option>
-                                <option value="in-progress">In Progress</option>
-                                <option value="resolved">Resolved</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div className="col-md-2">
-                        <button 
-                            className="btn btn-outline-secondary w-100" 
-                            onClick={handleRefresh}
-                            disabled={loading}
-                        >
-                            <RefreshCw size={18} className={loading ? "spinner" : ""} />
-                        </button>
                     </div>
                 </div>
 
                 {/* Error Message */}
                 {error && (
                     <div className="alert alert-danger" role="alert">
+                        <AlertCircle className="me-2" size={20} />
                         {error}
                     </div>
                 )}
@@ -188,7 +246,11 @@ const PetitionerDashboard = () => {
                                 </tr>
                             ) : (
                                 filteredGrievances.map((grievance) => (
-                                    <tr key={grievance.petitionId} style={{ cursor: 'pointer' }}>
+                                    <tr
+                                        key={grievance.petitionId}
+                                        style={{ cursor: 'pointer' }}
+                                        onClick={() => handleViewDetails(grievance.petitionId)}
+                                    >
                                         <td>{grievance.petitionId}</td>
                                         <td>{grievance.title}</td>
                                         <td>{grievance.department}</td>
@@ -197,9 +259,9 @@ const PetitionerDashboard = () => {
                                                 {grievance.status}
                                             </span>
                                         </td>
-                                        <td>{grievance.assignedTo || 'Not Assigned'}</td>
-                                        <td>{new Date(grievance.createdAt).toLocaleDateString()}</td>
-                                        <td>{new Date(grievance.updatedAt).toLocaleDateString()}</td>
+                                        <td>{grievance.assignedTo?.name || '-'}</td>
+                                        <td>{moment(grievance.createdAt).format('MMM DD, YYYY')}</td>
+                                        <td>{moment(grievance.updatedAt).format('MMM DD, YYYY')}</td>
                                     </tr>
                                 ))
                             )}

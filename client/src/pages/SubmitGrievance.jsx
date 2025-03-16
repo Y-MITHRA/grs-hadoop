@@ -4,19 +4,21 @@ import { useAuth } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import Footer from '../shared/Footer';
 import { Upload } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 const SubmitGrievance = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, authenticatedFetch } = useAuth();
     const [formData, setFormData] = useState({
         title: '',
         department: '',
         description: '',
-        attachments: null
+        attachments: []
     });
     const [errors, setErrors] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState('');
+    const [submitSuccess, setSubmitSuccess] = useState(false);
 
     // Pre-fill user data if available
     const [userData] = useState({
@@ -40,18 +42,23 @@ const SubmitGrievance = () => {
     };
 
     const handleFileChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                setErrors(prev => ({
-                    ...prev,
-                    attachments: 'File size should not exceed 5MB'
-                }));
-                return;
+        const files = e.target.files;
+        if (files) {
+            const newAttachments = [];
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                    setErrors(prev => ({
+                        ...prev,
+                        attachments: 'File size should not exceed 5MB'
+                    }));
+                    return;
+                }
+                newAttachments.push(file);
             }
             setFormData(prev => ({
                 ...prev,
-                attachments: file
+                attachments: newAttachments
             }));
         }
     };
@@ -73,43 +80,53 @@ const SubmitGrievance = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!validateForm()) return;
+        setSubmitError('');
+        setSubmitSuccess(false);
+
+        if (!validateForm()) {
+            return;
+        }
 
         setIsSubmitting(true);
-        setSubmitError('');
 
         try {
             const formDataToSend = new FormData();
-            formDataToSend.append('title', formData.title);
+            formDataToSend.append('title', formData.title.trim());
             formDataToSend.append('department', formData.department);
-            formDataToSend.append('description', formData.description);
-            if (formData.attachments) {
-                formDataToSend.append('attachment', formData.attachments);
-            }
+            formDataToSend.append('description', formData.description.trim());
 
-            const response = await fetch('http://localhost:5000/api/grievances/submit', {
+            // Append each file to FormData
+            Array.from(formData.attachments).forEach((file, index) => {
+                formDataToSend.append('attachment', file);
+            });
+
+            const response = await authenticatedFetch('/api/grievances/submit', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${user.token}`
-                },
                 body: formDataToSend
             });
 
             const data = await response.json();
 
-            if (response.ok) {
-                // Navigate back to dashboard with success message
-                navigate('/petitioner/dashboard', { 
-                    state: { 
-                        message: 'Grievance submitted successfully!',
-                        type: 'success'
-                    }
-                });
-            } else {
-                setSubmitError(data.message || 'Failed to submit grievance');
-            }
+            setSubmitSuccess(true);
+            setFormData({
+                title: '',
+                department: '',
+                description: '',
+                attachments: []
+            });
+
+            // Show success message
+            toast.success('Grievance submitted successfully!');
         } catch (error) {
-            setSubmitError('Server error. Please try again later.');
+            console.error('Submission error:', error);
+
+            if (error.message === 'Session expired. Please log in again.') {
+                setSubmitError('Your session has expired. Please log in again to submit your grievance.');
+            } else {
+                setSubmitError(error.message || 'Failed to submit grievance. Please try again.');
+            }
+
+            toast.error(error.message || 'Failed to submit grievance');
         } finally {
             setIsSubmitting(false);
         }
@@ -124,7 +141,7 @@ const SubmitGrievance = () => {
                         <div className="card shadow">
                             <div className="card-body">
                                 <h2 className="text-center mb-4">Submit New Grievance</h2>
-                                
+
                                 {submitError && (
                                     <div className="alert alert-danger" role="alert">
                                         {submitError}
@@ -160,7 +177,7 @@ const SubmitGrievance = () => {
                                     {/* Grievance Details Section */}
                                     <div className="mb-4">
                                         <h5>Grievance Details</h5>
-                                        
+
                                         <div className="mb-3">
                                             <label className="form-label">Title*</label>
                                             <input
@@ -211,6 +228,7 @@ const SubmitGrievance = () => {
                                                     className={`form-control ${errors.attachments ? 'is-invalid' : ''}`}
                                                     onChange={handleFileChange}
                                                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                                    multiple
                                                 />
                                                 <span className="input-group-text">
                                                     <Upload size={20} />
@@ -222,15 +240,15 @@ const SubmitGrievance = () => {
                                     </div>
 
                                     <div className="d-grid gap-2">
-                                        <button 
-                                            type="submit" 
+                                        <button
+                                            type="submit"
                                             className="btn btn-primary btn-lg"
                                             disabled={isSubmitting}
                                         >
                                             {isSubmitting ? 'Submitting...' : 'Submit Grievance'}
                                         </button>
-                                        <button 
-                                            type="button" 
+                                        <button
+                                            type="button"
                                             className="btn btn-outline-secondary"
                                             onClick={() => navigate('/petitioner/dashboard')}
                                         >

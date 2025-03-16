@@ -1,6 +1,6 @@
 import express from "express";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import { generateToken } from "../middleware/auth.js";
 import Petitioner from "../models/Petitioner.js";
 
 const router = express.Router();
@@ -56,11 +56,22 @@ router.post("/login", async (req, res) => {
             return res.status(400).json({ message: "Invalid credentials" });
         }
 
-        const token = jwt.sign({ id: petitioner._id, role: "petitioner" }, JWT_SECRET, { expiresIn: "1h" });
+        // Generate token with correct role
+        const token = generateToken({
+            _id: petitioner._id,
+            role: 'petitioner'
+        });
 
-        res.json({ message: "Login successful", token });
+        res.json({
+            message: "Login successful",
+            token,
+            userId: petitioner._id.toString(),
+            name: `${petitioner.firstName} ${petitioner.lastName}`.trim(),
+            email: petitioner.email
+        });
 
     } catch (error) {
+        console.error("Login error:", error);
         res.status(500).json({ message: "Server error" });
     }
 });
