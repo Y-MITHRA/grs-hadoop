@@ -1,0 +1,355 @@
+.dashboard-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  }
+  
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    height: 60px;
+  }
+  
+  .logo-section {
+    display: flex;
+    align-items: center;
+  }
+  
+  .logo {
+    font-weight: bold;
+    color: #0066b2;
+    margin-right: 1rem;
+  }
+  
+  .user-section {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+  
+  .user-dropdown {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+  }
+  
+  .avatar {
+    border-radius: 50%;
+  }
+  
+  .content-area {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+  
+  .sidebar {
+    width: 200px;
+    background-color: #f8f9fa;
+    padding: 1rem 0;
+    border-right: 1px solid #e0e0e0;
+  }
+  
+  .menu-item {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    gap: 0.5rem;
+  }
+  
+  .menu-item:hover {
+    background-color: #e9ecef;
+  }
+  
+  .menu-item.active {
+    background-color: #e9ecef;
+    border-left: 3px solid #0066b2;
+  }
+  
+  .main-content {
+    flex: 1;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    background-color: #f8f9fa;
+    overflow-y: auto;
+  }
+  
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 1rem;
+  }
+  
+  .stats-bar {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  
+  .stat-item {
+    display: flex;
+    gap: 0.25rem;
+  }
+  
+  .stat-number {
+    font-weight: bold;
+    color: #0066b2;
+  }
+  
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 1rem;
+  }
+  
+  .tab {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  
+  .tab:hover {
+    background-color: #e9ecef;
+  }
+  
+  .tab.active {
+    border-bottom: 2px solid #0066b2;
+    font-weight: bold;
+  }
+  
+  .search-filter {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  
+  .search-box {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background-color: #fff;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 0.25rem 0.5rem;
+  }
+  
+  .search-box input {
+    flex: 1;
+    border: none;
+    outline: none;
+    padding: 0.25rem;
+  }
+  
+  .filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: #fff;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 0 0.75rem;
+    cursor: pointer;
+  }
+  
+  .grievance-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .grievance-item {
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 0.75rem;
+    cursor: pointer;
+  }
+  
+  .grievance-item:hover {
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  }
+  
+  .grievance-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  
+  .grievance-id {
+    font-weight: bold;
+    color: #495057;
+    width: 80px;
+  }
+  
+  .grievance-title {
+    flex: 1;
+  }
+  
+  .grievance-assignee {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  
+  .assignee-avatar {
+    border-radius: 50%;
+  }
+  
+  .grievance-details {
+    display: flex;
+    font-size: 0.85rem;
+    color: #6c757d;
+  }
+  
+  .grievance-date {
+    width: 80px;
+  }
+  
+  .grievance-categories {
+    flex: 1;
+    display: flex;
+    gap: 0.5rem;
+  }
+  
+  .category, .subcategory {
+    background-color: #e9ecef;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+  }
+  
+  .grievance-status {
+    min-width: 80px;
+    text-align: right;
+  }
+  
+  .status {
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+  
+  .status.assigned {
+    background-color: #cfe2ff;
+    color: #0d6efd;
+  }
+  
+  .status.unassigned {
+    background-color: #fff3cd;
+    color: #ffc107;
+  }
+  
+  .status.closed {
+    background-color: #d1e7dd;
+    color: #198754;
+  }
+  
+  .status.myQueries {
+    background-color: #cff4fc;
+    color: #0dcaf0;
+  }
+  
+  .detail-panel {
+    width: 300px;
+    background-color: #fff;
+    border-left: 1px solid #e0e0e0;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .detail-header {
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  
+  .detail-avatar img {
+    border-radius: 50%;
+  }
+  
+  .detail-name {
+    font-weight: bold;
+  }
+  
+  .detail-content {
+    flex: 1;
+    padding: 1rem;
+    overflow-y: auto;
+  }
+  
+  .message-timestamp {
+    text-align: center;
+    margin: 1rem 0;
+    font-size: 0.8rem;
+    color: #6c757d;
+  }
+  
+  .message {
+    background-color: #f8f9fa;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+    position: relative;
+  }
+  
+  .message p {
+    margin: 0;
+  }
+  
+  .timestamp {
+    position: absolute;
+    bottom: 0.25rem;
+    right: 0.5rem;
+    font-size: 0.7rem;
+    color: #6c757d;
+  }
+  
+  .assignment-note {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin: 1rem 0;
+    font-style: italic;
+  }
+  
+  .response-box {
+    padding: 1rem;
+    border-top: 1px solid #e0e0e0;
+  }
+  
+  .response-box textarea {
+    width: 100%;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 0.5rem;
+    resize: none;
+    height: 80px;
+    margin-bottom: 0.5rem;
+  }
+  
+  .response-actions {
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  .send-btn, .attachment-btn {
+    padding: 0.25rem 0.75rem;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    background-color: #fff;
+    cursor: pointer;
+  }
+  
+  .send-btn {
+    background-color: #0066b2;
+    color: #fff;
+  }
