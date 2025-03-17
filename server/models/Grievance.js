@@ -1,6 +1,11 @@
 import mongoose from 'mongoose';
 
 const grievanceSchema = new mongoose.Schema({
+    grievanceId: {
+        type: String,
+        required: true,
+        unique: true
+    },
     petitionId: {
         type: String,
         required: true,
@@ -28,8 +33,8 @@ const grievanceSchema = new mongoose.Schema({
     status: {
         type: String,
         required: true,
-        enum: ['pending', 'assigned', 'in-progress', 'resolved', 'declined'],
-        default: 'pending'
+        enum: ['unassigned', 'pending', 'assigned', 'in-progress', 'resolved', 'declined', 'closed', 'escalated'],
+        default: 'unassigned'
     },
     petitioner: {
         name: {
@@ -41,25 +46,14 @@ const grievanceSchema = new mongoose.Schema({
             required: true
         },
         userId: {
-            type: mongoose.Schema.Types.ObjectId,
-            required: true,
-            ref: 'Petitioner'
+            type: String,
+            required: true
         }
     },
     assignedTo: {
-        officialId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'Official',
-            default: null
-        },
-        name: {
-            type: String,
-            default: null
-        },
-        assignedAt: {
-            type: Date,
-            default: null
-        }
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Official',
+        default: null
     },
     declinedBy: [{
         officialId: {
@@ -153,7 +147,8 @@ grievanceSchema.index({ 'petitioner.userId': 1 });
 grievanceSchema.index({ department: 1 });
 grievanceSchema.index({ status: 1 });
 grievanceSchema.index({ petitionId: 1 }, { unique: true });
-grievanceSchema.index({ 'assignedTo.officialId': 1 });
+grievanceSchema.index({ grievanceId: 1 }, { unique: true });
+grievanceSchema.index({ 'assignedTo': 1 });
 grievanceSchema.index({ 'declinedBy.officialId': 1 });
 
 const Grievance = mongoose.model('Grievance', grievanceSchema);

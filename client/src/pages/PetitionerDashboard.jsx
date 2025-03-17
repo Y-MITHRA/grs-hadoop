@@ -248,7 +248,7 @@ const PetitionerDashboard = () => {
                                 filteredGrievances.map((grievance) => (
                                     <tr
                                         key={grievance.petitionId}
-                                        style={{ cursor: 'pointer' }}
+                                        className="cursor-pointer"
                                         onClick={() => handleViewDetails(grievance.petitionId)}
                                     >
                                         <td>{grievance.petitionId}</td>
@@ -259,9 +259,18 @@ const PetitionerDashboard = () => {
                                                 {grievance.status}
                                             </span>
                                         </td>
-                                        <td>{grievance.assignedTo?.name || '-'}</td>
-                                        <td>{moment(grievance.createdAt).format('MMM DD, YYYY')}</td>
-                                        <td>{moment(grievance.updatedAt).format('MMM DD, YYYY')}</td>
+                                        <td>
+                                            {grievance.assignedTo ? (
+                                                <div>
+                                                    <div>{grievance.assignedTo.name}</div>
+                                                    <small className="text-muted">{grievance.assignedTo.email}</small>
+                                                </div>
+                                            ) : (
+                                                <span className="text-muted">Not assigned</span>
+                                            )}
+                                        </td>
+                                        <td>{moment(grievance.submittedDate).format('MMM D, YYYY')}</td>
+                                        <td>{moment(grievance.lastUpdated).format('MMM D, YYYY HH:mm')}</td>
                                     </tr>
                                 ))
                             )}

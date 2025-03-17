@@ -1,6 +1,7 @@
 import express from 'express';
 import auth from '../middleware/auth.js';
 import Grievance from '../models/Grievance.js';
+import Counter from '../models/Counter.js';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -42,6 +43,16 @@ const upload = multer({
     }
 });
 
+// Function to get next sequence
+const getNextSequence = async (name) => {
+    const counter = await Counter.findOneAndUpdate(
+        { _id: name },
+        { $inc: { seq: 1 } },
+        { new: true, upsert: true }
+    );
+    return counter.seq;
+};
+
 // Submit a new grievance
 router.post('/submit', auth, upload.single('attachment'), async (req, res) => {
     try {
@@ -54,7 +65,23 @@ router.post('/submit', auth, upload.single('attachment'), async (req, res) => {
 
         // Validate required fields
         if (!title || !description || !department) {
-            return res.status(400).json({ message: 'Please provide all required fields' });
+            return res.status(400).json({
+                message: 'Please provide all required fields',
+                missingFields: {
+                    title: !title,
+                    description: !description,
+                    department: !department
+                }
+            });
+        }
+
+        // Validate department
+        const validDepartments = ['Water', 'RTO', 'Electricity'];
+        if (!validDepartments.includes(department)) {
+            return res.status(400).json({
+                message: 'Invalid department',
+                validDepartments
+            });
         }
 
         // Validate user data
@@ -66,27 +93,41 @@ router.post('/submit', auth, upload.single('attachment'), async (req, res) => {
             });
         }
 
-        const petitionId = `PET${Date.now()}`;
+        // Generate unique IDs
+        const [petitionSequence, grievanceSequence] = await Promise.all([
+            getNextSequence('petitionId'),
+            getNextSequence('grievanceId')
+        ]);
+        
+        const petitionId = `PET${String(petitionSequence).padStart(6, '0')}`;
+        const grievanceId = `GRV${String(grievanceSequence).padStart(6, '0')}`;
 
         // Ensure we have the user's name
-        const petitionerName = req.user.name ||
-            (req.user._raw?.firstName && req.user._raw?.lastName
-                ? `${req.user._raw.firstName} ${req.user._raw.lastName}`.trim()
-                : req.user.email.split('@')[0]);
+        const petitionerName = req.user.name || req.user.email.split('@')[0];
 
-        // Create grievance object with explicit type conversion
+        // Handle file path
+        let attachmentPath = null;
+        if (req.file) {
+            // Convert Windows path to URL format
+            attachmentPath = req.file.path.replace(/\\/g, '/');
+            // Remove the 'server/' prefix if it exists
+            attachmentPath = attachmentPath.replace(/^server\//, '');
+        }
+
+        // Create grievance object
         const grievanceData = {
+            grievanceId,
             petitionId,
-            title,
-            description,
+            title: title.trim(),
+            description: description.trim(),
             department,
             petitioner: {
                 name: petitionerName,
                 email: req.user.email,
-                userId: req.user.id.toString() // Ensure it's a string
+                userId: req.user.id
             },
-            attachment: req.file ? req.file.path : null,
-            status: 'pending' // Using valid enum value
+            attachment: attachmentPath,
+            status: 'unassigned'
         };
 
         console.log('Creating grievance with data:', grievanceData);
@@ -96,7 +137,7 @@ router.post('/submit', auth, upload.single('attachment'), async (req, res) => {
         // Validate before saving
         const validationError = newGrievance.validateSync();
         if (validationError) {
-            console.error('Validation error before save:', validationError);
+            console.error('Validation error:', validationError);
             return res.status(400).json({
                 message: 'Validation error',
                 errors: validationError.errors
@@ -108,11 +149,70 @@ router.post('/submit', auth, upload.single('attachment'), async (req, res) => {
 
         res.status(201).json({
             message: 'Grievance submitted successfully',
-            petitionId,
-            grievanceId: newGrievance._id
+            grievance: {
+                grievanceId,
+                petitionId,
+                title: newGrievance.title,
+                status: newGrievance.status
+            }
         });
     } catch (error) {
         console.error('Error submitting grievance:', error);
+        
+        // Handle duplicate ID errors
+        if (error.code === 11000) {
+            // If we somehow get a duplicate, try one more time with new IDs
+            try {
+                const [petitionSequence, grievanceSequence] = await Promise.all([
+                    getNextSequence('petitionId'),
+                    getNextSequence('grievanceId')
+                ]);
+                
+                const petitionId = `PET${String(petitionSequence).padStart(6, '0')}`;
+                const grievanceId = `GRV${String(grievanceSequence).padStart(6, '0')}`;
+                
+                const grievanceData = {
+                    grievanceId,
+                    petitionId,
+                    ...req.body,
+                    petitioner: {
+                        name: req.user.name || req.user.email.split('@')[0],
+                        email: req.user.email,
+                        userId: req.user.id
+                    },
+                    attachment: req.file ? req.file.path.replace(/\\/g, '/') : null,
+                    status: 'unassigned'
+                };
+
+                const newGrievance = new Grievance(grievanceData);
+                await newGrievance.save();
+
+                return res.status(201).json({
+                    message: 'Grievance submitted successfully (retry)',
+                    grievance: {
+                        grievanceId,
+                        petitionId,
+                        title: newGrievance.title,
+                        status: newGrievance.status
+                    }
+                });
+            } catch (retryError) {
+                console.error('Error in retry attempt:', retryError);
+                return res.status(500).json({
+                    message: 'Failed to submit grievance after retry',
+                    error: retryError.message
+                });
+            }
+        }
+
+        // Handle multer errors
+        if (error.name === 'MulterError') {
+            return res.status(400).json({
+                message: 'File upload error',
+                error: error.message
+            });
+        }
+
         res.status(500).json({
             message: 'Error submitting grievance',
             error: error.message,
@@ -334,6 +434,69 @@ router.get('/:petitionId', auth, async (req, res) => {
     } catch (error) {
         console.error('Error fetching grievance details:', error);
         res.status(500).json({ message: 'Error fetching grievance details' });
+    }
+});
+
+// Get grievances for a specific user
+router.get('/user/:userId', auth, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { status } = req.query;
+
+        // Build query
+        const query = { 'petitioner.userId': userId };
+        if (status && status !== 'all') {
+            query.status = status;
+        }
+
+        // Fetch grievances with populated fields
+        const grievances = await Grievance.find(query)
+            .populate('assignedTo', 'name email')
+            .sort({ createdAt: -1 });
+
+        // Calculate statistics
+        const stats = {
+            total: await Grievance.countDocuments({ 'petitioner.userId': userId }),
+            pending: await Grievance.countDocuments({ 
+                'petitioner.userId': userId,
+                status: { $in: ['unassigned', 'pending'] }
+            }),
+            inProgress: await Grievance.countDocuments({ 
+                'petitioner.userId': userId,
+                status: { $in: ['assigned', 'in-progress'] }
+            }),
+            resolved: await Grievance.countDocuments({ 
+                'petitioner.userId': userId,
+                status: 'resolved'
+            })
+        };
+
+        // Format grievances for frontend
+        const formattedGrievances = grievances.map(grievance => ({
+            petitionId: grievance.petitionId,
+            title: grievance.title,
+            department: grievance.department,
+            status: grievance.status,
+            assignedTo: grievance.assignedTo ? {
+                name: grievance.assignedTo.name,
+                email: grievance.assignedTo.email
+            } : null,
+            submittedDate: grievance.createdAt,
+            lastUpdated: grievance.updatedAt,
+            description: grievance.description,
+            attachment: grievance.attachment
+        }));
+
+        res.json({
+            grievances: formattedGrievances,
+            stats
+        });
+    } catch (error) {
+        console.error('Error fetching user grievances:', error);
+        res.status(500).json({ 
+            message: 'Error fetching grievances',
+            error: error.message
+        });
     }
 });
 

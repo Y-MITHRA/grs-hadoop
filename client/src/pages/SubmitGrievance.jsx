@@ -96,37 +96,52 @@ const SubmitGrievance = () => {
             formDataToSend.append('description', formData.description.trim());
 
             // Append each file to FormData
-            Array.from(formData.attachments).forEach((file, index) => {
-                formDataToSend.append('attachment', file);
-            });
+            if (formData.attachments.length > 0) {
+                formDataToSend.append('attachment', formData.attachments[0]); // Only send first file for now
+            }
 
-            const response = await authenticatedFetch('/api/grievances/submit', {
+            const response = await authenticatedFetch('http://localhost:5000/api/grievances/submit', {
                 method: 'POST',
                 body: formDataToSend
             });
 
-            const data = await response.json();
-
-            setSubmitSuccess(true);
-            setFormData({
-                title: '',
-                department: '',
-                description: '',
-                attachments: []
-            });
-
-            // Show success message
-            toast.success('Grievance submitted successfully!');
-        } catch (error) {
-            console.error('Submission error:', error);
-
-            if (error.message === 'Session expired. Please log in again.') {
-                setSubmitError('Your session has expired. Please log in again to submit your grievance.');
-            } else {
-                setSubmitError(error.message || 'Failed to submit grievance. Please try again.');
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to submit grievance');
             }
 
-            toast.error(error.message || 'Failed to submit grievance');
+            const data = await response.json();
+
+            if (data.message === 'Grievance submitted successfully') {
+                setSubmitSuccess(true);
+                setFormData({
+                    title: '',
+                    department: '',
+                    description: '',
+                    attachments: []
+                });
+                toast.success('Grievance submitted successfully!');
+                
+                // Navigate to dashboard after successful submission
+                setTimeout(() => {
+                    navigate('/petitioner/dashboard', {
+                        state: {
+                            message: 'Grievance submitted successfully!',
+                            type: 'success'
+                        }
+                    });
+                }, 1500);
+            } else {
+                throw new Error(data.message || 'Failed to submit grievance');
+            }
+        } catch (error) {
+            console.error('Submission error:', error);
+            const errorMessage = error.message === 'Session expired. Please log in again.' 
+                ? 'Your session has expired. Please log in again to submit your grievance.'
+                : error.message || 'Failed to submit grievance. Please try again.';
+            
+            setSubmitError(errorMessage);
+            toast.error(errorMessage);
         } finally {
             setIsSubmitting(false);
         }
