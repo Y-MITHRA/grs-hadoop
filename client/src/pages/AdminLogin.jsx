@@ -69,21 +69,13 @@ const AdminLogin = () => {
             const data = await response.json();
 
             if (response.ok) {
-                // Use the AuthContext login function
-                login({
-                    token: data.token,
-                    userType: 'admin',
-                    email: formData.email,
-                    adminId: formData.adminId,
-                    name: data.name || null
-                });
-
-                // Redirect to admin dashboard
-                navigate(getRedirectPath('admin'));
+                // Use the AuthContext login function with the correct data structure
+                await login(data.user, data.token);
             } else {
                 setServerError(data.message || "Login failed");
             }
         } catch (error) {
+            console.error('Login error:', error);
             setServerError("Server error. Please try again later.");
         }
     };
