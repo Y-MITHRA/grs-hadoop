@@ -5,6 +5,9 @@ import Footer from "../shared/Footer";
 import NavBar from "../components/NavBar";
 import { Plus, Search, Filter, RefreshCw, Eye, MessageCircle, AlertCircle } from "lucide-react";
 import moment from 'moment';
+import { toast } from 'react-hot-toast';
+
+const API_URL = 'http://localhost:5000/api';
 
 const PetitionerDashboard = () => {
     const navigate = useNavigate();
@@ -25,6 +28,9 @@ const PetitionerDashboard = () => {
     });
     const [activeTab, setActiveTab] = useState('all');
     const [filteredGrievances, setFilteredGrievances] = useState([]);
+    const [selectedRating, setSelectedRating] = useState(0);
+    const [feedbackComment, setFeedbackComment] = useState('');
+    const [feedbackGrievanceId, setFeedbackGrievanceId] = useState(null);
 
     useEffect(() => {
         fetchGrievances();
@@ -129,6 +135,47 @@ const PetitionerDashboard = () => {
 
     const handleViewDetails = (grievanceId) => {
         navigate(`/grievance/${grievanceId}`);
+    };
+
+    const handleSubmitFeedback = async (grievanceId) => {
+        try {
+            if (!selectedRating) {
+                toast.error('Please select a rating');
+                return;
+            }
+
+            console.log('Submitting feedback:', {
+                grievanceId,
+                rating: selectedRating,
+                comment: feedbackComment
+            });
+
+            const response = await authenticatedFetch(`${API_URL}/grievances/${grievanceId}/feedback`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    rating: selectedRating,
+                    comment: feedbackComment
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to submit feedback');
+            }
+
+            // Refresh grievances list
+            fetchGrievances();
+            toast.success('Feedback submitted successfully');
+            setSelectedRating(0);
+            setFeedbackComment('');
+            setFeedbackGrievanceId(null);
+        } catch (error) {
+            console.error('Error submitting feedback:', error);
+            toast.error(error.message || 'Failed to submit feedback');
+        }
     };
 
     return (
@@ -261,12 +308,13 @@ const PetitionerDashboard = () => {
                                 <th>Assigned To</th>
                                 <th>Submitted Date</th>
                                 <th>Last Updated</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan="7" className="text-center py-4">
+                                    <td colSpan="8" className="text-center py-4">
                                         <div className="spinner-border text-primary" role="status">
                                             <span className="visually-hidden">Loading...</span>
                                         </div>
@@ -274,7 +322,7 @@ const PetitionerDashboard = () => {
                                 </tr>
                             ) : filteredGrievances.length === 0 ? (
                                 <tr>
-                                    <td colSpan="7" className="text-center py-4">
+                                    <td colSpan="8" className="text-center py-4">
                                         No grievances found
                                     </td>
                                 </tr>
@@ -301,6 +349,24 @@ const PetitionerDashboard = () => {
                                         </td>
                                         <td>{moment(grievance.createdAt).format('MMM D, YYYY')}</td>
                                         <td>{moment(grievance.updatedAt).format('MMM D, YYYY')}</td>
+                                        <td>
+                                            <div className="btn-group">
+                                                <button
+                                                    className="btn btn-sm btn-outline-primary"
+                                                    onClick={() => handleViewDetails(grievance._id)}
+                                                >
+                                                    <Eye size={16} />
+                                                </button>
+                                                {grievance.status === 'resolved' && (
+                                                    <button
+                                                        className="btn btn-sm btn-outline-success"
+                                                        onClick={() => setFeedbackGrievanceId(grievance._id)}
+                                                    >
+                                                        <MessageCircle size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))
                             )}
@@ -308,6 +374,79 @@ const PetitionerDashboard = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Feedback Modal */}
+            {feedbackGrievanceId && (
+                <>
+                    <div className="modal show d-block" style={{ zIndex: 1050 }} tabIndex="-1">
+                        <div className="modal-dialog">
+                            <div className="modal-content">
+                                <div className="modal-header">
+                                    <h5 className="modal-title">Provide Feedback</h5>
+                                    <button
+                                        type="button"
+                                        className="btn-close"
+                                        onClick={() => {
+                                            setFeedbackGrievanceId(null);
+                                            setSelectedRating(0);
+                                            setFeedbackComment('');
+                                        }}
+                                    ></button>
+                                </div>
+                                <div className="modal-body">
+                                    <div className="mb-3">
+                                        <label className="form-label">Rating</label>
+                                        <div className="d-flex gap-2">
+                                            {[1, 2, 3, 4, 5].map((star) => (
+                                                <button
+                                                    key={star}
+                                                    type="button"
+                                                    className={`btn ${star <= selectedRating ? 'btn-warning' : 'btn-outline-warning'}`}
+                                                    onClick={() => setSelectedRating(star)}
+                                                >
+                                                    ★
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="form-label">Comment (Optional)</label>
+                                        <textarea
+                                            className="form-control"
+                                            rows="3"
+                                            value={feedbackComment}
+                                            onChange={(e) => setFeedbackComment(e.target.value)}
+                                            placeholder="Share your experience..."
+                                        ></textarea>
+                                    </div>
+                                </div>
+                                <div className="modal-footer">
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => {
+                                            setFeedbackGrievanceId(null);
+                                            setSelectedRating(0);
+                                            setFeedbackComment('');
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={() => handleSubmitFeedback(feedbackGrievanceId)}
+                                    >
+                                        Submit Feedback
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="modal-backdrop show" style={{ zIndex: 1040 }}></div>
+                </>
+            )}
+
             <Footer />
         </>
     );

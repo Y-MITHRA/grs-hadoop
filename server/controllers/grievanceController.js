@@ -463,22 +463,24 @@ export const submitFeedback = async (req, res) => {
             return res.status(400).json({ error: 'Can only submit feedback for resolved grievances' });
         }
 
-        if (grievance.feedback) {
+        if (grievance.feedbackRating) {
             return res.status(400).json({ error: 'Feedback already submitted' });
         }
 
         // Add feedback
-        grievance.feedback = {
-            rating,
-            comment,
-            date: new Date()
-        };
+        grievance.feedbackRating = rating;
+        grievance.feedbackComment = comment;
+        grievance.feedbackDate = new Date();
 
         await grievance.save();
 
         res.json({
             message: 'Feedback submitted successfully',
-            feedback: grievance.feedback
+            feedback: {
+                rating: grievance.feedbackRating,
+                comment: grievance.feedbackComment,
+                date: grievance.feedbackDate
+            }
         });
     } catch (error) {
         console.error('Error submitting feedback:', error);
@@ -493,15 +495,19 @@ export const getOfficialFeedback = async (req, res) => {
 
         const grievances = await Grievance.find({
             assignedTo: id,
-            'feedback': { $exists: true }
+            'feedbackRating': { $exists: true }
         })
             .populate('petitioner', 'name email')
-            .select('title feedback resolutionDocument');
+            .select('title feedbackRating feedbackComment feedbackDate resolutionDocument');
 
         res.json({
             feedback: grievances.map(g => ({
                 title: g.title,
-                feedback: g.feedback,
+                feedback: {
+                    rating: g.feedbackRating,
+                    comment: g.feedbackComment,
+                    date: g.feedbackDate
+                },
                 resolutionDocument: g.resolutionDocument,
                 petitioner: g.petitioner
             }))

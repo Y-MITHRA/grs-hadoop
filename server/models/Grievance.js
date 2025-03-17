@@ -98,15 +98,13 @@ const grievanceSchema = new mongoose.Schema({
         text: String,
         date: Date
     },
-    feedback: {
-        rating: {
-            type: Number,
-            min: 1,
-            max: 5
-        },
-        comment: String,
-        date: Date
+    feedbackRating: {
+        type: Number,
+        min: 1,
+        max: 5
     },
+    feedbackComment: String,
+    feedbackDate: Date,
     createdAt: {
         type: Date,
         default: Date.now
