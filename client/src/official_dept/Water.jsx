@@ -2,24 +2,29 @@ import React, { useState, useEffect } from "react";
 import "../styles/WaterBoard.css";
 import NavBar_Departments from "../components/NavBar_Departments";
 import { useAuth } from "../context/AuthContext";
+import { useNavigate } from 'react-router-dom';
+import { FaSearch, FaUser, FaSignOutAlt, FaCheck, FaPlay, FaCheckCircle } from 'react-icons/fa';
+import io from 'socket.io-client';
+import { toast } from 'react-hot-toast';
 
 const WaterDashboard = () => {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [employeeId, setEmployeeId] = useState("");
   const [email, setEmail] = useState("");
-  const [activeTab, setActiveTab] = useState("unassigned");
+  const [activeTab, setActiveTab] = useState("pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [grievances, setGrievances] = useState({
-    unassigned: [],
+    pending: [],
     assigned: [],
-    closed: [],
-    myQueries: []
+    inProgress: [],
+    resolved: []
   });
   const [stats, setStats] = useState({
-    unassigned: 0,
+    pending: 0,
     assigned: 0,
-    closed: 0,
-    myQueries: 0
+    inProgress: 0,
+    resolved: 0
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -28,35 +33,82 @@ const WaterDashboard = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [declineReason, setDeclineReason] = useState("");
   const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [socket, setSocket] = useState(null);
 
   useEffect(() => {
-    setEmployeeId(localStorage.getItem("employeeId") || "N/A");
-    setEmail(localStorage.getItem("email") || "N/A");
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    // Set user info
+    setEmployeeId(user.id);
+    setEmail(user.email);
+
+    // Fetch initial data
     fetchGrievances();
-  }, [activeTab]);
+  }, [user, navigate, activeTab]);
 
   useEffect(() => {
     if (selectedGrievance) {
-      fetchChatMessages(selectedGrievance.petitionId);
+      fetchChatMessages(selectedGrievance._id);
     }
   }, [selectedGrievance]);
+
+  useEffect(() => {
+    // Initialize socket connection
+    const newSocket = io('http://localhost:5000');
+    setSocket(newSocket);
+
+    return () => newSocket.close();
+  }, []);
+
+  useEffect(() => {
+    if (socket && selectedGrievance) {
+      // Join chat room
+      socket.emit('join-chat', selectedGrievance._id);
+
+      // Listen for new messages
+      socket.on('new-message', (message) => {
+        setChatMessages(prev => [...prev, message]);
+      });
+
+      return () => {
+        socket.emit('leave-chat', selectedGrievance._id);
+        socket.off('new-message');
+      };
+    }
+  }, [socket, selectedGrievance]);
 
   const fetchGrievances = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`http://localhost:5000/api/grievances/department/water/${activeTab}`, {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/department/Water/${activeTab}`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch grievances');
+        if (response.status === 401) {
+          logout();
+          navigate('/login');
+          return;
+        }
+        const errorData = await response.json();
+        console.error('Error response:', errorData);
+        throw new Error(errorData.error || 'Failed to fetch grievances');
       }
 
       const data = await response.json();
+      console.log('Fetched data:', data);
 
       setGrievances(prev => ({
         ...prev,
@@ -74,11 +126,16 @@ const WaterDashboard = () => {
     }
   };
 
-  const fetchChatMessages = async (petitionId) => {
+  const fetchChatMessages = async (grievanceId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/grievances/${petitionId}/chat`, {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/chat`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -93,13 +150,17 @@ const WaterDashboard = () => {
     }
   };
 
-  const handleAccept = async (grievance) => {
+  const handleAccept = async (grievanceId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/grievances/${grievance.petitionId}/accept`, {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/accept`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
+          'Authorization': `Bearer ${token}`
         }
       });
 
@@ -107,20 +168,113 @@ const WaterDashboard = () => {
         throw new Error('Failed to accept grievance');
       }
 
+      // Refresh data
       fetchGrievances();
-      setSelectedGrievance(null);
+      setActiveTab('assigned');
     } catch (error) {
       console.error('Error accepting grievance:', error);
-      setError('Failed to accept grievance. Please try again.');
+      setError('Failed to accept grievance');
+    }
+  };
+
+  const handleStartProgress = async (grievanceId) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/start-progress`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ comment: 'Starting progress on grievance' })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start progress');
+      }
+
+      // Refresh data
+      fetchGrievances();
+      setActiveTab('inProgress');
+    } catch (error) {
+      console.error('Error starting progress:', error);
+      setError('Failed to start progress');
+    }
+  };
+
+  const handleResolve = async (grievanceId) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.pdf,.jpg,.jpeg,.png';
+      fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('document', file);
+
+        // First upload the document
+        const uploadResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/upload-resolution`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+          body: formData
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload resolution document');
+        }
+
+        // Then resolve the grievance
+        const resolveResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resolve`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            resolutionMessage: 'Grievance resolved with attached document'
+          })
+        });
+
+        if (!resolveResponse.ok) {
+          throw new Error('Failed to resolve grievance');
+        }
+
+        // Refresh the grievances list
+        fetchGrievances();
+        toast.success('Grievance resolved successfully');
+      };
+
+      fileInput.click();
+    } catch (error) {
+      console.error('Error resolving grievance:', error);
+      toast.error(error.message || 'Failed to resolve grievance');
     }
   };
 
   const handleDecline = async (grievance) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/grievances/${grievance.petitionId}/decline`, {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${grievance._id}/decline`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ reason: declineReason })
@@ -144,10 +298,15 @@ const WaterDashboard = () => {
     if (!chatMessage.trim() || !selectedGrievance) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/grievances/${selectedGrievance.petitionId}/chat`, {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${selectedGrievance._id}/chat`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ message: chatMessage })
@@ -158,17 +317,21 @@ const WaterDashboard = () => {
       }
 
       setChatMessage("");
-      fetchChatMessages(selectedGrievance.petitionId);
     } catch (error) {
       console.error('Error sending chat message:', error);
+      setError('Failed to send message. Please try again.');
     }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("employeeId");
-    localStorage.removeItem("email");
-    window.location.href = "/";
+    logout();
+    navigate('/login');
   };
+
+  const filteredGrievances = grievances[activeTab].filter(grievance =>
+    grievance.grievanceId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    grievance.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div>
@@ -208,48 +371,48 @@ const WaterDashboard = () => {
               <h1>Grievances</h1>
               <div className="stats-bar">
                 <div className="stat-item">
-                  <span>Unassigned:</span>
-                  <span className="stat-number">{stats.unassigned}</span>
+                  <span>Pending:</span>
+                  <span className="stat-number">{stats.pending}</span>
                 </div>
                 <div className="stat-item">
                   <span>Assigned:</span>
                   <span className="stat-number">{stats.assigned}</span>
                 </div>
                 <div className="stat-item">
-                  <span>Closed:</span>
-                  <span className="stat-number">{stats.closed}</span>
+                  <span>In Progress:</span>
+                  <span className="stat-number">{stats.inProgress}</span>
                 </div>
                 <div className="stat-item">
-                  <span>My Queries:</span>
-                  <span className="stat-number">{stats.myQueries}</span>
+                  <span>Resolved:</span>
+                  <span className="stat-number">{stats.resolved}</span>
                 </div>
               </div>
             </div>
 
             <div className="tabs">
               <div
-                className={`tab ${activeTab === "unassigned" ? "active" : ""}`}
-                onClick={() => setActiveTab("unassigned")}
+                className={`tab ${activeTab === "pending" ? "active" : ""}`}
+                onClick={() => setActiveTab("pending")}
               >
-                Unassigned
+                Pending Acceptance
               </div>
               <div
                 className={`tab ${activeTab === "assigned" ? "active" : ""}`}
                 onClick={() => setActiveTab("assigned")}
               >
-                Assigned
+                Assigned Cases
               </div>
               <div
-                className={`tab ${activeTab === "closed" ? "active" : ""}`}
-                onClick={() => setActiveTab("closed")}
+                className={`tab ${activeTab === "inProgress" ? "active" : ""}`}
+                onClick={() => setActiveTab("inProgress")}
               >
-                Closed
+                In Progress
               </div>
               <div
-                className={`tab ${activeTab === "myQueries" ? "active" : ""}`}
-                onClick={() => setActiveTab("myQueries")}
+                className={`tab ${activeTab === "resolved" ? "active" : ""}`}
+                onClick={() => setActiveTab("resolved")}
               >
-                My Queries
+                Resolved
               </div>
             </div>
 
@@ -277,12 +440,12 @@ const WaterDashboard = () => {
               <div className="grievance-list">
                 {grievances[activeTab].map((item) => (
                   <div
-                    className={`grievance-item ${selectedGrievance?.petitionId === item.petitionId ? 'selected' : ''}`}
-                    key={item.petitionId || item._id}
+                    className={`grievance-item ${selectedGrievance?._id === item._id ? 'selected' : ''}`}
+                    key={item._id}
                     onClick={() => setSelectedGrievance(item)}
                   >
                     <div className="grievance-header">
-                      <div className="grievance-id">{item.petitionId}</div>
+                      <div className="grievance-id">{item.grievanceId}</div>
                       <div className="grievance-title">{item.title}</div>
                       <div className="grievance-assignee">
                         {item.assignedTo && (
@@ -302,29 +465,64 @@ const WaterDashboard = () => {
                           {item.status}
                         </span>
                       </div>
-                      {activeTab === 'unassigned' && (
-                        <div className="grievance-actions">
+                      <div className="grievance-actions">
+                        {activeTab === 'pending' && (
+                          <>
+                            <button
+                              className="btn btn-success btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAccept(item);
+                              }}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm ms-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedGrievance(item);
+                                setShowDeclineModal(true);
+                              }}
+                            >
+                              Decline
+                            </button>
+                          </>
+                        )}
+                        {activeTab === 'assigned' && (
                           <button
-                            className="btn btn-success btn-sm"
+                            className="btn btn-primary btn-sm"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleAccept(item);
+                              handleStartProgress(item._id);
                             }}
                           >
-                            Accept
+                            Start
                           </button>
-                          <button
-                            className="btn btn-danger btn-sm ms-2"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedGrievance(item);
-                              setShowDeclineModal(true);
-                            }}
-                          >
-                            Decline
-                          </button>
-                        </div>
-                      )}
+                        )}
+                        {activeTab === 'inProgress' && (
+                          <>
+                            <button
+                              className="btn btn-info btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedGrievance(item);
+                              }}
+                            >
+                              Chat
+                            </button>
+                            <button
+                              className="btn btn-success btn-sm ms-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleResolve(item._id);
+                              }}
+                            >
+                              Resolve
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -348,11 +546,11 @@ const WaterDashboard = () => {
               </div>
               <div className="detail-content">
                 <div className="grievance-info">
-                  <p><strong>ID:</strong> {selectedGrievance.petitionId}</p>
+                  <p><strong>ID:</strong> {selectedGrievance.grievanceId}</p>
                   <p><strong>Title:</strong> {selectedGrievance.title}</p>
                   <p><strong>Description:</strong> {selectedGrievance.description}</p>
                   <p><strong>Status:</strong> {selectedGrievance.status}</p>
-                  <p><strong>Submitted by:</strong> {selectedGrievance.petitioner.name}</p>
+                  <p><strong>Submitted by:</strong> {selectedGrievance.petitioner?.name}</p>
                   {selectedGrievance.assignedTo && (
                     <p><strong>Assigned to:</strong> {selectedGrievance.assignedTo.name}</p>
                   )}
@@ -364,7 +562,7 @@ const WaterDashboard = () => {
                       {chatMessages.map((msg, index) => (
                         <div
                           key={index}
-                          className={`chat-message ${msg.sender.role === 'official' ? 'sent' : 'received'}`}
+                          className={`chat-message ${msg.senderType === 'Official' ? 'sent' : 'received'}`}
                         >
                           <div className="message-content">
                             <p>{msg.message}</p>
@@ -421,6 +619,31 @@ const WaterDashboard = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {selectedGrievance && selectedGrievance.status === 'resolved' && (
+        <div className="mt-4 p-4 bg-white rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-2">Resolution Details</h3>
+          {selectedGrievance.resolutionDocument && (
+            <div className="mb-4">
+              <p className="text-sm text-gray-600">Resolution Document:</p>
+              <a
+                href={`http://localhost:5000/uploads/resolution-docs/${selectedGrievance.resolutionDocument.filename}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline"
+              >
+                View Document
+              </a>
+            </div>
+          )}
+          {selectedGrievance.resolution && (
+            <div className="mb-4">
+              <p className="text-sm text-gray-600">Resolution Message:</p>
+              <p className="text-sm">{selectedGrievance.resolution.text}</p>
+            </div>
+          )}
         </div>
       )}
     </div>

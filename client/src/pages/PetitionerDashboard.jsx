@@ -32,29 +32,60 @@ const PetitionerDashboard = () => {
         if (location.state?.message) {
             window.history.replaceState({}, document.title);
         }
-    }, []);
+    }, [activeTab]);
 
     useEffect(() => {
-        const filtered = grievances.filter(grievance =>
-            grievance.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            grievance.petitionId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            grievance.department.toLowerCase().includes(searchTerm.toLowerCase())
-        );
+        const filtered = grievances.filter(grievance => {
+            const title = grievance.title || '';
+            const grievanceId = grievance.petitionId || '';
+            const department = grievance.department || '';
+
+            // First apply status filter
+            const matchesStatus = activeTab === 'all' || grievance.status === activeTab;
+
+            // Then apply search filter
+            const matchesSearch = title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                grievanceId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                department.toLowerCase().includes(searchTerm.toLowerCase());
+
+            return matchesStatus && matchesSearch;
+        });
         setFilteredGrievances(filtered);
-    }, [searchTerm, grievances]);
+    }, [searchTerm, grievances, activeTab]);
 
     const fetchGrievances = async () => {
         setLoading(true);
         setError('');
         try {
-            const response = await authenticatedFetch(`http://localhost:5000/api/grievances/user/${user.id}${activeTab !== 'all' ? `?status=${activeTab}` : ''}`);
+            const response = await authenticatedFetch(`http://localhost:5000/api/grievances/user/${user.id}`);
             const data = await response.json();
 
             if (response.ok) {
-                setGrievances(data.grievances);
-                setStats(data.stats);
+                // Transform the data to match the expected format
+                const transformedGrievances = data.grievances.map(grievance => ({
+                    ...grievance,
+                    grievanceId: grievance.petitionId,
+                    submittedDate: grievance.createdAt,
+                    lastUpdated: grievance.updatedAt,
+                    assignedTo: grievance.assignedTo ? {
+                        name: `${grievance.assignedTo.firstName} ${grievance.assignedTo.lastName}`,
+                        designation: grievance.assignedTo.designation,
+                        department: grievance.assignedTo.department
+                    } : null
+                }));
+
+                setGrievances(transformedGrievances);
+
+                // Calculate stats
+                const stats = {
+                    total: transformedGrievances.length,
+                    pending: transformedGrievances.filter(g => g.status === 'pending').length,
+                    inProgress: transformedGrievances.filter(g => g.status === 'in-progress').length,
+                    resolved: transformedGrievances.filter(g => g.status === 'resolved').length
+                };
+                setStats(stats);
             } else {
-                setError(data.message || 'Failed to fetch grievances');
+                setError(data.error || 'Failed to fetch grievances');
             }
         } catch (error) {
             console.error('Error fetching grievances:', error);
@@ -71,6 +102,11 @@ const PetitionerDashboard = () => {
         }
     };
 
+    const handleTabChange = (tab) => {
+        setActiveTab(tab);
+        setSearchTerm(''); // Clear search when changing tabs
+    };
+
     const handleRefresh = () => {
         setLoading(true);
         fetchGrievances();
@@ -80,21 +116,19 @@ const PetitionerDashboard = () => {
         switch (status.toLowerCase()) {
             case 'pending':
                 return 'bg-warning';
-            case 'assigned':
-                return 'bg-info';
             case 'in-progress':
                 return 'bg-primary';
             case 'resolved':
                 return 'bg-success';
-            case 'declined':
+            case 'rejected':
                 return 'bg-danger';
             default:
                 return 'bg-secondary';
         }
     };
 
-    const handleViewDetails = (petitionId) => {
-        navigate(`/grievance/${petitionId}`);
+    const handleViewDetails = (grievanceId) => {
+        navigate(`/grievance/${grievanceId}`);
     };
 
     return (
@@ -167,25 +201,25 @@ const PetitionerDashboard = () => {
                         <div className="btn-group" role="group">
                             <button
                                 className={`btn ${activeTab === 'all' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                onClick={() => setActiveTab('all')}
+                                onClick={() => handleTabChange('all')}
                             >
                                 All
                             </button>
                             <button
                                 className={`btn ${activeTab === 'pending' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                onClick={() => setActiveTab('pending')}
+                                onClick={() => handleTabChange('pending')}
                             >
                                 Pending
                             </button>
                             <button
                                 className={`btn ${activeTab === 'in-progress' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                onClick={() => setActiveTab('in-progress')}
+                                onClick={() => handleTabChange('in-progress')}
                             >
                                 In Progress
                             </button>
                             <button
                                 className={`btn ${activeTab === 'resolved' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                onClick={() => setActiveTab('resolved')}
+                                onClick={() => handleTabChange('resolved')}
                             >
                                 Resolved
                             </button>
@@ -201,7 +235,7 @@ const PetitionerDashboard = () => {
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                             <button className="btn btn-outline-secondary" type="button">
-                                <i className="bi bi-search"></i>
+                                <Search size={18} />
                             </button>
                         </div>
                     </div>
@@ -220,7 +254,7 @@ const PetitionerDashboard = () => {
                     <table className="table table-hover">
                         <thead className="table-light">
                             <tr>
-                                <th>Petition ID</th>
+                                <th>Grievance ID</th>
                                 <th>Title</th>
                                 <th>Department</th>
                                 <th>Status</th>
@@ -246,31 +280,27 @@ const PetitionerDashboard = () => {
                                 </tr>
                             ) : (
                                 filteredGrievances.map((grievance) => (
-                                    <tr
-                                        key={grievance.petitionId}
-                                        className="cursor-pointer"
-                                        onClick={() => handleViewDetails(grievance.petitionId)}
-                                    >
-                                        <td>{grievance.petitionId}</td>
-                                        <td>{grievance.title}</td>
-                                        <td>{grievance.department}</td>
+                                    <tr key={grievance._id}>
+                                        <td>{grievance.petitionId || 'N/A'}</td>
+                                        <td>{grievance.title || 'Untitled'}</td>
+                                        <td>{grievance.department || 'N/A'}</td>
                                         <td>
                                             <span className={`badge ${getStatusBadgeClass(grievance.status)}`}>
-                                                {grievance.status}
+                                                {grievance.status || 'Unknown'}
                                             </span>
                                         </td>
                                         <td>
                                             {grievance.assignedTo ? (
                                                 <div>
                                                     <div>{grievance.assignedTo.name}</div>
-                                                    <small className="text-muted">{grievance.assignedTo.email}</small>
+                                                    <small className="text-muted">
+                                                        {grievance.assignedTo.designation} - {grievance.assignedTo.department}
+                                                    </small>
                                                 </div>
-                                            ) : (
-                                                <span className="text-muted">Not assigned</span>
-                                            )}
+                                            ) : 'Not Assigned'}
                                         </td>
-                                        <td>{moment(grievance.submittedDate).format('MMM D, YYYY')}</td>
-                                        <td>{moment(grievance.lastUpdated).format('MMM D, YYYY HH:mm')}</td>
+                                        <td>{moment(grievance.createdAt).format('MMM D, YYYY')}</td>
+                                        <td>{moment(grievance.updatedAt).format('MMM D, YYYY')}</td>
                                     </tr>
                                 ))
                             )}

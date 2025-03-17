@@ -1,17 +1,67 @@
 import mongoose from 'mongoose';
 
-const grievanceSchema = new mongoose.Schema({
-    grievanceId: {
+const chatMessageSchema = new mongoose.Schema({
+    sender: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        refPath: 'senderType'
+    },
+    senderType: {
         type: String,
         required: true,
-        unique: true
+        enum: ['Petitioner', 'Official']
     },
+    message: {
+        type: String,
+        required: true
+    },
+    timestamp: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+const statusHistorySchema = new mongoose.Schema({
+    status: {
+        type: String,
+        required: true,
+        enum: ['pending', 'assigned', 'in-progress', 'resolved', 'rejected']
+    },
+    updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        refPath: 'statusHistory.updatedByType'
+    },
+    updatedByType: {
+        type: String,
+        required: true,
+        enum: ['petitioner', 'official', 'admin']
+    },
+    comment: {
+        type: String,
+        required: true
+    },
+    timestamp: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+const grievanceSchema = new mongoose.Schema({
     petitionId: {
         type: String,
+        unique: true,
         required: true,
-        unique: true
+        default: function () {
+            return `GRV${Date.now().toString().slice(-6)}`;
+        }
     },
     title: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    description: {
         type: String,
         required: true,
         trim: true
@@ -21,135 +71,57 @@ const grievanceSchema = new mongoose.Schema({
         required: true,
         enum: ['Water', 'RTO', 'Electricity']
     },
-    description: {
-        type: String,
-        required: true,
-        trim: true
-    },
-    attachment: {
-        type: String,
-        required: false
-    },
-    status: {
-        type: String,
-        required: true,
-        enum: ['unassigned', 'pending', 'assigned', 'in-progress', 'resolved', 'declined', 'closed', 'escalated'],
-        default: 'unassigned'
-    },
     petitioner: {
-        name: {
-            type: String,
-            required: true
-        },
-        email: {
-            type: String,
-            required: true
-        },
-        userId: {
-            type: String,
-            required: true
-        }
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        ref: 'Petitioner'
     },
     assignedTo: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Official',
         default: null
     },
-    declinedBy: [{
-        officialId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'Official',
-            required: true
-        },
-        name: {
-            type: String,
-            required: true
-        },
-        reason: String,
-        declinedAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
-    chatMessages: [{
-        sender: {
-            id: {
-                type: mongoose.Schema.Types.ObjectId,
-                required: true
-            },
-            role: {
-                type: String,
-                enum: ['petitioner', 'official'],
-                required: true
-            },
-            name: {
-                type: String,
-                required: true
-            }
-        },
-        message: {
-            type: String,
-            required: true
-        },
-        timestamp: {
-            type: Date,
-            default: Date.now
-        },
-        read: {
-            type: Boolean,
-            default: false
-        }
-    }],
-    notifications: [{
-        message: {
-            type: String,
-            required: true
-        },
-        timestamp: {
-            type: Date,
-            default: Date.now
-        },
-        read: {
-            type: Boolean,
-            default: false
-        }
-    }],
-    comments: [{
-        text: {
-            type: String,
-            required: true
-        },
-        author: {
-            type: String,
-            required: true
-        },
-        createdAt: {
-            type: Date,
-            default: Date.now
-        }
-    }],
+    status: {
+        type: String,
+        required: true,
+        enum: ['pending', 'assigned', 'in-progress', 'resolved', 'rejected'],
+        default: 'pending'
+    },
+    statusHistory: [statusHistorySchema],
+    chatMessages: [chatMessageSchema],
+    resolutionDocument: {
+        filename: String,
+        path: String,
+        uploadedAt: Date
+    },
     resolution: {
-        text: {
-            type: String,
-            default: null
+        text: String,
+        date: Date
+    },
+    feedback: {
+        rating: {
+            type: Number,
+            min: 1,
+            max: 5
         },
-        resolvedAt: {
-            type: Date,
-            default: null
-        }
+        comment: String,
+        date: Date
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
     }
-}, {
-    timestamps: true
 });
 
-// Create indexes for better query performance
-grievanceSchema.index({ 'petitioner.userId': 1 });
-grievanceSchema.index({ department: 1 });
-grievanceSchema.index({ status: 1 });
-grievanceSchema.index({ petitionId: 1 }, { unique: true });
-grievanceSchema.index({ grievanceId: 1 }, { unique: true });
-grievanceSchema.index({ 'assignedTo': 1 });
-grievanceSchema.index({ 'declinedBy.officialId': 1 });
+// Update the updatedAt timestamp before saving
+grievanceSchema.pre('save', function (next) {
+    this.updatedAt = new Date();
+    next();
+});
 
 const Grievance = mongoose.model('Grievance', grievanceSchema);
 

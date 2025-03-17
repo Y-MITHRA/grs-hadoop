@@ -9,7 +9,7 @@ import { getRedirectPath } from "../utils/authUtils";
 const OfficialLogin = () => {
     const navigate = useNavigate();
     const { login } = useAuth();
-    const [formData, setFormData] = useState({ 
+    const [formData, setFormData] = useState({
         employeeId: "",
         email: "",
         password: "",
@@ -71,21 +71,13 @@ const OfficialLogin = () => {
             const data = await response.json();
 
             if (response.ok) {
-                // Use the AuthContext login function
-                login({
-                    token: data.token,
-                    userType: 'official',
-                    email: formData.email,
-                    employeeId: formData.employeeId,
-                    department: formData.department
-                });
-
-                // Redirect to the appropriate department dashboard
-                navigate(getRedirectPath('official', formData.department));
+                // Pass the token and user data correctly
+                await login(data.user, data.token);
             } else {
-                setServerError(data.message || "Login failed");
+                setServerError(data.error || "Login failed");
             }
         } catch (error) {
+            console.error('Login error:', error);
             setServerError("Server error. Please try again later.");
         }
     };

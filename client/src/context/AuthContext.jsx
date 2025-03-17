@@ -123,13 +123,17 @@ export const AuthProvider = ({ children }) => {
             setUser(userData);
             setTokenExpiryWarning(false);
 
-            // Navigate based on user role
+            // Navigate based on user role and department
             switch (userData.role.toLowerCase()) {
                 case 'petitioner':
                     navigate('/petitioner/dashboard');
                     break;
                 case 'official':
-                    navigate('/official/dashboard');
+                    if (userData.department) {
+                        navigate(`/official-dashboard/${userData.department.toLowerCase()}`);
+                    } else {
+                        navigate('/official-dashboard');
+                    }
                     break;
                 case 'admin':
                     navigate('/admin/dashboard');
@@ -170,26 +174,35 @@ export const AuthProvider = ({ children }) => {
     };
 
     const handleApiResponse = async (response) => {
-        // Check for token expiration warning header
-        const tokenExpiringHeader = response.headers.get('X-Token-Expiring-Soon');
-        if (tokenExpiringHeader === 'true') {
-            setTokenExpiryWarning(true);
+        // Check for token expiration warning
+        const token = localStorage.getItem('token');
+        if (token) {
+            const decoded = decodeToken(token);
+            if (decoded && isTokenExpiringSoon(decoded)) {
+                setTokenExpiryWarning(true);
+            }
         }
 
         if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-
-            // Handle specific error codes
-            switch (data.code) {
-                case 'TOKEN_EXPIRED':
-                case 'TOKEN_INVALID':
-                case 'TOKEN_MISSING':
-                case 'USER_NOT_FOUND':
-                    logout();
-                    throw new Error('Session expired. Please log in again.');
-                default:
-                    throw new Error(data.message || 'An error occurred');
+            let errorMessage = 'An error occurred';
+            try {
+                const data = await response.json();
+                // Handle specific error codes
+                switch (data.code) {
+                    case 'TOKEN_EXPIRED':
+                    case 'TOKEN_INVALID':
+                    case 'TOKEN_MISSING':
+                    case 'USER_NOT_FOUND':
+                        logout();
+                        throw new Error('Session expired. Please log in again.');
+                    default:
+                        errorMessage = data.message || data.error || 'An error occurred';
+                }
+            } catch (e) {
+                // If response is not JSON, use status text
+                errorMessage = response.statusText || 'An error occurred';
             }
+            throw new Error(errorMessage);
         }
 
         return response;

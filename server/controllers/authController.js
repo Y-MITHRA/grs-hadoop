@@ -1,91 +1,120 @@
-// import jwt from 'jsonwebtoken';
-// import bcrypt from 'bcryptjs';
-// import Petitioner from '../models/Petitioner.js';
-// import Official from '../models/Official.js';
-// import Admin from '../models/Admin.js';
-// import { getOfficialDashboard } from '../utils/redirectHelper.js';
-
-// const generateToken = (id, role) => {
-//     return jwt.sign({ id, role }, 'secretKey', { expiresIn: '1d' });
-// };
-
-// // Official Login with Department Redirect
-// export const loginOfficial = async (req, res) => {
-//     const { email, password } = req.body;
-//     const official = await Official.findOne({ email });
-
-//     if (official && (await bcrypt.compare(password, official.password))) {
-//         const dashboardRedirect = getOfficialDashboard(official.department);
-//         res.json({
-//             token: generateToken(official._id, 'official'),
-//             dashboardRedirect
-//         });
-//     } else {
-//         res.status(401).json({ error: 'Invalid credentials' });
-//     }
-// };
-
-// // Petitioner Login
-// export const loginPetitioner = async (req, res) => {
-//     const { email, password } = req.body;
-//     const petitioner = await Petitioner.findOne({ email });
-
-//     if (petitioner && (await bcrypt.compare(password, petitioner.password))) {
-//         res.json({ token: generateToken(petitioner._id, 'petitioner') });
-//     } else {
-//         res.status(401).json({ error: 'Invalid credentials' });
-//     }
-// };
-
-// // Admin Login
-// export const loginAdmin = async (req, res) => {
-//     const { email, password } = req.body;
-//     const admin = await Admin.findOne({ email });
-
-//     if (admin && (await bcrypt.compare(password, admin.password))) {
-//         res.json({ token: generateToken(admin._id, 'admin') });
-//     } else {
-//         res.status(401).json({ error: 'Invalid credentials' });
-//     }
-// };
-
-
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-// import Petitioner from '../models/Petitioner.js';
 import Official from '../models/Official.js';
-// import Admin from '../models/Admin.js';
-import { getOfficialDashboard } from '../utils/redirectHelper.js';
 
-const generateToken = (id, role, department = null) => {
-    return jwt.sign({ id, role, department }, 'secretKey', { expiresIn: '1d' });
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+
+const generateToken = (user) => {
+    const payload = {
+        id: user._id.toString(),
+        role: 'official',
+        department: user.department,
+        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+    };
+
+    return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256' });
 };
 
 // Official Login with Department Redirect
 export const loginOfficial = async (req, res) => {
-    const { email, password } = req.body;
-    const official = await Official.findOne({ email });
+    try {
+        const { email, password, department, employeeId } = req.body;
 
-    if (!official) {
-        return res.status(404).json({ error: 'Official not found' });
+        // Log incoming request data (without password)
+        console.log('📥 Login attempt:', {
+            email,
+            department,
+            employeeId,
+            password: '[REDACTED]'
+        });
+
+        // Check for required fields
+        if (!email || !password || !department) {
+            console.log('❌ Missing required fields:', { email: !!email, department: !!department, password: !!password });
+            return res.status(400).json({ error: 'Email, password, and department are required' });
+        }
+
+        // Build the query
+        const query = { email, department };
+        if (employeeId) {
+            query.employeeId = employeeId;
+        }
+
+        console.log('🔍 Searching for official with query:', query);
+
+        // Find official by query
+        const official = await Official.findOne(query);
+        if (!official) {
+            console.log('❌ Official not found for criteria:', {
+                email,
+                department,
+                employeeId: employeeId || 'not provided'
+            });
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        console.log('✅ Found official:', {
+            email: official.email,
+            department: official.department,
+            employeeId: official.employeeId,
+            hasPassword: !!official.password,
+            passwordType: official.password.startsWith('$2a$') ||
+                official.password.startsWith('$2b$') ? 'hashed' : 'plain'
+        });
+
+        // Check if password is already hashed (for old records)
+        let isPasswordValid;
+        try {
+            if (official.password.startsWith('$2a$') || official.password.startsWith('$2b$')) {
+                // Password is already hashed, use bcrypt.compare
+                isPasswordValid = await bcrypt.compare(password, official.password);
+                console.log('Password comparison result (hashed):', isPasswordValid);
+            } else {
+                // For any plain text passwords (legacy data)
+                isPasswordValid = (official.password === password);
+                console.log('Password comparison result (plain):', isPasswordValid);
+
+                // If match found, update the password to proper bcrypt hash
+                if (isPasswordValid) {
+                    const salt = await bcrypt.genSalt(10);
+                    const hashedPassword = await bcrypt.hash(password, salt);
+                    official.password = hashedPassword;
+                    await official.save();
+                    console.log('Updated plain password to hashed version');
+                }
+            }
+        } catch (error) {
+            console.error('Password comparison error:', error);
+            return res.status(401).json({ error: 'Error comparing passwords' });
+        }
+
+        if (!isPasswordValid) {
+            console.log('❌ Password mismatch for official:', email);
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Generate JWT token
+        const token = generateToken(official);
+
+        console.log('✅ Official logged in successfully:', official.email);
+
+        // Return user data with token
+        res.status(200).json({
+            message: 'Login successful',
+            token,
+            user: {
+                id: official._id.toString(),
+                firstName: official.firstName,
+                lastName: official.lastName,
+                email: official.email,
+                department: official.department,
+                designation: official.designation,
+                employeeId: official.employeeId,
+                role: 'official'
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error during login:', error.message);
+        res.status(500).json({ error: 'Server error during login' });
     }
-
-    const isPasswordMatch = await bcrypt.compare(password, official.password);
-
-    if (!isPasswordMatch) {
-        return res.status(401).json({ error: 'Incorrect password' });
-    }
-
-    if (!official.department) {
-        return res.status(400).json({ error: 'Department not assigned for this official' });
-    }
-
-    const dashboardRedirect = getOfficialDashboard(official.department);
-
-    res.json({
-        token: generateToken(official._id, 'official', official.department),
-        dashboardRedirect
-    });
-};
-
-// Petitioner Lo
+}; 

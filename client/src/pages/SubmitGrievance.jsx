@@ -90,29 +90,28 @@ const SubmitGrievance = () => {
         setIsSubmitting(true);
 
         try {
-            const formDataToSend = new FormData();
-            formDataToSend.append('title', formData.title.trim());
-            formDataToSend.append('department', formData.department);
-            formDataToSend.append('description', formData.description.trim());
+            const requestData = {
+                title: formData.title.trim(),
+                department: formData.department,
+                description: formData.description.trim()
+            };
 
-            // Append each file to FormData
-            if (formData.attachments.length > 0) {
-                formDataToSend.append('attachment', formData.attachments[0]); // Only send first file for now
-            }
-
-            const response = await authenticatedFetch('http://localhost:5000/api/grievances/submit', {
+            const response = await authenticatedFetch('http://localhost:5000/api/grievances', {
                 method: 'POST',
-                body: formDataToSend
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to submit grievance');
+                throw new Error(errorData.error || 'Failed to submit grievance');
             }
 
             const data = await response.json();
 
-            if (data.message === 'Grievance submitted successfully') {
+            if (data.message === 'Grievance created successfully') {
                 setSubmitSuccess(true);
                 setFormData({
                     title: '',
@@ -121,7 +120,7 @@ const SubmitGrievance = () => {
                     attachments: []
                 });
                 toast.success('Grievance submitted successfully!');
-                
+
                 // Navigate to dashboard after successful submission
                 setTimeout(() => {
                     navigate('/petitioner/dashboard', {
@@ -132,14 +131,14 @@ const SubmitGrievance = () => {
                     });
                 }, 1500);
             } else {
-                throw new Error(data.message || 'Failed to submit grievance');
+                throw new Error(data.error || 'Failed to submit grievance');
             }
         } catch (error) {
             console.error('Submission error:', error);
-            const errorMessage = error.message === 'Session expired. Please log in again.' 
+            const errorMessage = error.message === 'Session expired. Please log in again.'
                 ? 'Your session has expired. Please log in again to submit your grievance.'
                 : error.message || 'Failed to submit grievance. Please try again.';
-            
+
             setSubmitError(errorMessage);
             toast.error(errorMessage);
         } finally {
