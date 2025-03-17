@@ -90,4 +90,4 @@ router.get('/official/:id/feedback', auth, getOfficialFeedback);
 router.get('/:id/chat', auth, getChatMessages);
 router.post('/:id/chat', auth, sendChatMessage);
 
-export default router;  
+export default router; 

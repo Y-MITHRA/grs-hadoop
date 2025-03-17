@@ -34,6 +34,7 @@ const WaterDashboard = () => {
   const [declineReason, setDeclineReason] = useState("");
   const [showDeclineModal, setShowDeclineModal] = useState(false);
   const [socket, setSocket] = useState(null);
+  const [filteredGrievances, setFilteredGrievances] = useState([]);
 
   useEffect(() => {
     if (!user) {
@@ -110,9 +111,10 @@ const WaterDashboard = () => {
       const data = await response.json();
       console.log('Fetched data:', data);
 
+      // Update the specific tab's grievances
       setGrievances(prev => ({
         ...prev,
-        [activeTab]: data.grievances
+        [activeTab]: data.grievances || []
       }));
 
       if (data.stats) {
@@ -157,6 +159,8 @@ const WaterDashboard = () => {
         throw new Error('No authentication token found');
       }
 
+      console.log('Accepting grievance:', grievanceId); // Debug log
+
       const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/accept`, {
         method: 'POST',
         headers: {
@@ -165,15 +169,17 @@ const WaterDashboard = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to accept grievance');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to accept grievance');
       }
 
       // Refresh data
       fetchGrievances();
       setActiveTab('assigned');
+      toast.success('Grievance accepted successfully');
     } catch (error) {
       console.error('Error accepting grievance:', error);
-      setError('Failed to accept grievance');
+      toast.error(error.message || 'Failed to accept grievance');
     }
   };
 
@@ -194,15 +200,17 @@ const WaterDashboard = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start progress');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start progress');
       }
 
-      // Refresh data
-      fetchGrievances();
+      // Refresh data and switch to inProgress tab
       setActiveTab('inProgress');
+      await fetchGrievances();
+      toast.success('Grievance moved to in-progress');
     } catch (error) {
       console.error('Error starting progress:', error);
-      setError('Failed to start progress');
+      toast.error(error.message || 'Failed to start progress');
     }
   };
 
@@ -328,10 +336,25 @@ const WaterDashboard = () => {
     navigate('/login');
   };
 
-  const filteredGrievances = grievances[activeTab].filter(grievance =>
-    grievance.grievanceId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    grievance.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => {
+    const filtered = grievances[activeTab].filter(grievance => {
+      const title = grievance.title || '';
+      const grievanceId = grievance.petitionId || '';
+      const department = grievance.department || '';
+      const petitionerName = grievance.petitioner?.name || '';
+      const petitionerEmail = grievance.petitioner?.email || '';
+
+      // Then apply search filter
+      const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        grievanceId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        department.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        petitionerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        petitionerEmail.toLowerCase().includes(searchQuery.toLowerCase());
+
+      return matchesSearch;
+    });
+    setFilteredGrievances(filtered);
+  }, [searchQuery, grievances, activeTab]);
 
   return (
     <div>
@@ -438,7 +461,7 @@ const WaterDashboard = () => {
               <div className="alert alert-danger">{error}</div>
             ) : (
               <div className="grievance-list">
-                {grievances[activeTab].map((item) => (
+                {filteredGrievances.map((item) => (
                   <div
                     className={`grievance-item ${selectedGrievance?._id === item._id ? 'selected' : ''}`}
                     key={item._id}
@@ -472,7 +495,7 @@ const WaterDashboard = () => {
                               className="btn btn-success btn-sm"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleAccept(item);
+                                handleAccept(item._id);
                               }}
                             >
                               Accept
@@ -526,7 +549,7 @@ const WaterDashboard = () => {
                     </div>
                   </div>
                 ))}
-                {grievances[activeTab].length === 0 && (
+                {filteredGrievances.length === 0 && (
                   <div className="text-center p-4">No grievances found</div>
                 )}
               </div>
