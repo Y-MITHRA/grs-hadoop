@@ -40,7 +40,7 @@ const upload = multer({
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit
   }
-}).single('attachment'); // Changed from 'file' to 'attachment' to match frontend
+}).array('attachments', 5); // Allow up to 5 files
 
 // Create new grievance with error handling
 router.post('/', isAuthenticated, async (req, res) => {
@@ -54,7 +54,7 @@ router.post('/', isAuthenticated, async (req, res) => {
     }
 
     try {
-      const { title, department, description, location } = req.body;
+      const { title, department, description, location, coordinates } = req.body;
 
       // Validate required fields
       if (!title || !department || !description || !location) {
@@ -63,30 +63,48 @@ router.post('/', isAuthenticated, async (req, res) => {
         });
       }
 
+      // Validate department
+      const validDepartments = ['License', 'Registration', 'Vehicle', 'Permits', 'Enforcement', 'Other'];
+      if (!validDepartments.includes(department)) {
+        return res.status(400).json({ 
+          message: 'Invalid department. Must be one of: License, Registration, Vehicle, Permits, Enforcement, Other' 
+        });
+      }
+
       // Create new grievance
       const grievance = new Grievance({
-        title,
+        title: title.trim(),
         department,
-        description,
-        location,
+        description: description.trim(),
+        location: location.trim(),
+        coordinates: coordinates ? JSON.parse(coordinates) : null,
         user: req.user._id
       });
 
-      // Add attachment if file was uploaded
-      if (req.file) {
-        grievance.attachments.push({
-          filename: req.file.originalname,
-          path: req.file.path,
-          mimetype: req.file.mimetype
+      // Add attachments if files were uploaded
+      if (req.files && req.files.length > 0) {
+        req.files.forEach(file => {
+          grievance.attachments.push({
+            filename: file.originalname,
+            path: file.path,
+            mimetype: file.mimetype
+          });
         });
       }
 
       await grievance.save();
-      res.status(201).json(grievance);
+      res.status(201).json({ 
+        message: 'Grievance created successfully',
+        grievance 
+      });
     } catch (error) {
-      // Clean up uploaded file if there was an error
-      if (req.file) {
-        fs.unlinkSync(req.file.path);
+      // Clean up uploaded files if there was an error
+      if (req.files) {
+        req.files.forEach(file => {
+          if (fs.existsSync(file.path)) {
+            fs.unlinkSync(file.path);
+          }
+        });
       }
       console.error('Error creating grievance:', error);
       res.status(400).json({ 
@@ -96,71 +114,65 @@ router.post('/', isAuthenticated, async (req, res) => {
   });
 });
 
-// Get all grievances
+// Get all grievances for the logged-in user
 router.get('/', isAuthenticated, async (req, res) => {
   try {
-    let grievances;
-    if (req.user.role === 'admin') {
-      // Admins can see all grievances
-      grievances = await Grievance.find().populate('user', 'name email');
-    } else {
-      // Regular users can only see their own grievances
-      grievances = await Grievance.find({ user: req.user._id }).populate('user', 'name email');
-    }
+    const grievances = await Grievance.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .lean();
     res.json(grievances);
-  } catch (err) {
-    console.error('Error fetching grievances:', err);
-    res.status(500).json({ message: 'Error fetching grievances' });
+  } catch (error) {
+    console.error('Error fetching grievances:', error);
+    res.status(500).json({ message: 'Failed to fetch grievances' });
   }
 });
 
-// Get single grievance
+// Get a single grievance by ID
 router.get('/:id', isAuthenticated, async (req, res) => {
   try {
-    const grievance = await Grievance.findById(req.params.id)
-      .populate('user', 'name email')
-      .lean();
-    
+    const grievance = await Grievance.findOne({
+      _id: req.params.id,
+      user: req.user._id
+    }).lean();
+
     if (!grievance) {
       return res.status(404).json({ message: 'Grievance not found' });
     }
 
-    // Check if user has permission to view this grievance
-    if (req.user.role !== 'admin' && grievance.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not authorized to view this grievance' });
-    }
-
-    // Format dates
-    grievance.createdAt = new Date(grievance.createdAt).toISOString();
-    grievance.updatedAt = new Date(grievance.updatedAt).toISOString();
-
     res.json(grievance);
-  } catch (err) {
-    console.error('Error fetching grievance:', err);
-    res.status(500).json({ message: 'Error fetching grievance details' });
+  } catch (error) {
+    console.error('Error fetching grievance:', error);
+    res.status(500).json({ message: 'Failed to fetch grievance' });
   }
 });
 
-// Update grievance status (admin only)
-router.patch('/:id/status', isAuthenticated, async (req, res) => {
+// Add a response to a grievance
+router.post('/:id/responses', isAuthenticated, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Only admins can update grievance status' });
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ message: 'Response message is required' });
     }
 
-    const { status } = req.body;
-    const grievance = await Grievance.findById(req.params.id);
+    const grievance = await Grievance.findOne({
+      _id: req.params.id,
+      user: req.user._id
+    });
 
     if (!grievance) {
       return res.status(404).json({ message: 'Grievance not found' });
     }
 
-    grievance.status = status;
+    grievance.responses.push({
+      message,
+      user: req.user._id
+    });
+
     await grievance.save();
-    res.json(grievance);
-  } catch (err) {
-    console.error('Error updating grievance status:', err);
-    res.status(400).json({ message: err.message });
+    res.json({ message: 'Response added successfully', grievance });
+  } catch (error) {
+    console.error('Error adding response:', error);
+    res.status(500).json({ message: 'Failed to add response' });
   }
 });
 

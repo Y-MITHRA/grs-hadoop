@@ -11,20 +11,30 @@ const grievanceSchema = new mongoose.Schema({
   // Grievance Details
   title: {
     type: String,
-    required: [true, 'Title is required']
+    required: [true, 'Title is required'],
+    trim: true
   },
   department: {
     type: String,
     required: [true, 'Department is required'],
-    enum: ['License', 'Registration', 'Vehicle', 'Permits', 'Enforcement', 'Other']
+    enum: {
+      values: ['License', 'Registration', 'Vehicle', 'Permits', 'Enforcement', 'Other'],
+      message: 'Invalid department. Must be one of: License, Registration, Vehicle, Permits, Enforcement, Other'
+    }
   },
   description: {
     type: String,
-    required: [true, 'Description is required']
+    required: [true, 'Description is required'],
+    trim: true
   },
   location: {
     type: String,
-    required: [true, 'Location is required']
+    required: [true, 'Location is required'],
+    trim: true
+  },
+  coordinates: {
+    latitude: Number,
+    longitude: Number
   },
   
   // Attachments
@@ -41,15 +51,20 @@ const grievanceSchema = new mongoose.Schema({
     default: 'Pending'
   },
   
-  // Timestamps
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
-  }
+  // Responses
+  responses: [{
+    message: String,
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }]
+}, {
+  timestamps: true
 });
 
 // Update timestamp on save

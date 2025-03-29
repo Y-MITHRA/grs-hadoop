@@ -1,108 +1,148 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Container,
   Typography,
+  Paper,
+  Box,
   TextField,
   Button,
-  Box,
-  Paper,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Alert,
   Grid,
+  InputAdornment,
+  IconButton,
 } from '@mui/material';
-import { useAuth } from '../contexts/AuthContext';
+import {
+  Upload as UploadIcon,
+  LocationOn as LocationOnIcon
+} from '@mui/icons-material';
+import { toast } from 'react-hot-toast';
 import axios from 'axios';
 
 const GrievanceForm = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
-
-  // Form state
+  const { user } = useAuth();
   const [formData, setFormData] = useState({
     title: '',
     department: '',
     description: '',
-    location: ''
+    location: '',
+    coordinates: null,
+    attachments: []
   });
+  const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
-  const departments = [
-    'License',
-    'Registration',
-    'Vehicle',
-    'Permits',
-    'Enforcement',
-    'Other'
-  ];
+  const departments = ['License', 'Registration', 'Vehicle', 'Permits', 'Enforcement', 'Other'];
 
-  const handleInputChange = (e) => {
+  const getCurrentLocation = () => {
+    setIsGettingLocation(true);
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      setIsGettingLocation(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setFormData(prev => ({
+          ...prev,
+          coordinates: { latitude, longitude }
+        }));
+        // Get address from coordinates using reverse geocoding
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
+          .then(response => response.json())
+          .then(data => {
+            setFormData(prev => ({
+              ...prev,
+              location: data.display_name
+            }));
+            toast.success('Location captured successfully!');
+          })
+          .catch(error => {
+            console.error('Error getting address:', error);
+            toast.error('Could not get address from coordinates');
+          })
+          .finally(() => {
+            setIsGettingLocation(false);
+          });
+      },
+      (error) => {
+        console.error('Error getting location:', error);
+        toast.error('Could not get your location. Please enter it manually.');
+        setIsGettingLocation(false);
+      }
+    );
+  };
+
+  const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
     // Clear error when user starts typing
-    setError('');
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
   };
 
   const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Check file size (5MB limit)
-      if (file.size > 5 * 1024 * 1024) {
-        setError('File size must be less than 5MB');
-        e.target.value = ''; // Clear the file input
-        return;
+    const files = e.target.files;
+    if (files) {
+      const newAttachments = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 5 * 1024 * 1024) {
+          setErrors(prev => ({
+            ...prev,
+            attachments: 'File size should not exceed 5MB'
+          }));
+          return;
+        }
+        newAttachments.push(file);
       }
-      
-      // Check file type
-      const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png'];
-      if (!allowedTypes.includes(file.type)) {
-        setError('Invalid file type. Supported formats: PDF, DOC, DOCX, JPG, PNG');
-        e.target.value = ''; // Clear the file input
-        return;
-      }
-      
-      setSelectedFile(file);
-      setError('');
+      setFormData(prev => ({
+        ...prev,
+        attachments: newAttachments
+      }));
     }
   };
 
   const validateForm = () => {
+    const newErrors = {};
     if (!formData.title.trim()) {
-      setError('Title is required');
-      return false;
+      newErrors.title = 'Title is required';
     }
     if (!formData.department) {
-      setError('Department is required');
-      return false;
-    }
-    if (!formData.location.trim()) {
-      setError('Location is required');
-      return false;
+      newErrors.department = 'Department is required';
     }
     if (!formData.description.trim()) {
-      setError('Description is required');
-      return false;
+      newErrors.description = 'Description is required';
     }
-    return true;
+    if (!formData.location.trim()) {
+      newErrors.location = 'Location is required';
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (!validateForm()) {
       return;
     }
 
-    setLoading(true);
-    setError('');
+    setIsSubmitting(true);
 
     try {
       const formDataToSend = new FormData();
@@ -110,10 +150,14 @@ const GrievanceForm = () => {
       formDataToSend.append('department', formData.department);
       formDataToSend.append('description', formData.description.trim());
       formDataToSend.append('location', formData.location.trim());
-      
-      if (selectedFile) {
-        formDataToSend.append('attachment', selectedFile);
+      if (formData.coordinates) {
+        formDataToSend.append('coordinates', JSON.stringify(formData.coordinates));
       }
+      
+      // Append attachments
+      formData.attachments.forEach(file => {
+        formDataToSend.append('attachments', file);
+      });
 
       const response = await axios.post('http://localhost:5000/api/grievances', formDataToSend, {
         withCredentials: true,
@@ -122,47 +166,37 @@ const GrievanceForm = () => {
         },
       });
 
-      if (response.data) {
+      if (response.data.message === 'Grievance created successfully') {
+        toast.success('Grievance submitted successfully!');
         navigate('/dashboard');
       }
-    } catch (err) {
-      console.error('Error submitting grievance:', err);
-      setError(err.response?.data?.message || 'Failed to submit grievance. Please try again.');
+    } catch (error) {
+      console.error('Submission error:', error);
+      toast.error(error.response?.data?.message || 'Failed to submit grievance');
     } finally {
-      setLoading(false);
+      setIsSubmitting(false);
     }
-  };
-
-  const handleCancel = () => {
-    navigate('/dashboard');
   };
 
   return (
     <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
       <Paper sx={{ p: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center">
+        <Typography variant="h4" component="h1" align="center" gutterBottom>
           Submit New Grievance
         </Typography>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-
-        <Box component="form" onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit}>
           {/* Petitioner Details Section */}
-          <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+          <Typography variant="h6" gutterBottom>
             Petitioner Details
           </Typography>
-          <Grid container spacing={2}>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 label="Name"
                 value={user?.name || ''}
                 disabled
-                sx={{ mb: 2 }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -171,23 +205,24 @@ const GrievanceForm = () => {
                 label="Email"
                 value={user?.email || ''}
                 disabled
-                sx={{ mb: 2 }}
               />
             </Grid>
           </Grid>
 
           {/* Grievance Details Section */}
-          <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+          <Typography variant="h6" gutterBottom>
             Grievance Details
           </Typography>
-          
+
           <TextField
             fullWidth
             required
             label="Title"
             name="title"
             value={formData.title}
-            onChange={handleInputChange}
+            onChange={handleChange}
+            error={!!errors.title}
+            helperText={errors.title}
             sx={{ mb: 2 }}
           />
 
@@ -196,8 +231,9 @@ const GrievanceForm = () => {
             <Select
               name="department"
               value={formData.department}
-              onChange={handleInputChange}
+              onChange={handleChange}
               label="Department"
+              error={!!errors.department}
             >
               {departments.map((dept) => (
                 <MenuItem key={dept} value={dept}>
@@ -205,6 +241,11 @@ const GrievanceForm = () => {
                 </MenuItem>
               ))}
             </Select>
+            {errors.department && (
+              <Typography color="error" variant="caption">
+                {errors.department}
+              </Typography>
+            )}
           </FormControl>
 
           <TextField
@@ -213,8 +254,22 @@ const GrievanceForm = () => {
             label="Location"
             name="location"
             value={formData.location}
-            onChange={handleInputChange}
-            placeholder="Enter RTO office location or relevant address"
+            onChange={handleChange}
+            error={!!errors.location}
+            helperText={errors.location}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    onClick={getCurrentLocation}
+                    disabled={isGettingLocation}
+                    edge="end"
+                  >
+                    <LocationOnIcon />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
             sx={{ mb: 2 }}
           />
 
@@ -224,42 +279,45 @@ const GrievanceForm = () => {
             label="Description"
             name="description"
             value={formData.description}
-            onChange={handleInputChange}
+            onChange={handleChange}
             multiline
             rows={4}
+            error={!!errors.description}
+            helperText={errors.description}
             sx={{ mb: 2 }}
           />
 
-          {/* Attachments Section */}
-          <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
-            Attachments
-          </Typography>
-          
-          <input
-            accept=".pdf,.doc,.docx,.jpg,.png"
-            style={{ display: 'none' }}
-            id="attachment-file"
-            type="file"
-            onChange={handleFileChange}
-          />
-          <label htmlFor="attachment-file">
-            <Button
-              variant="outlined"
-              component="span"
-              fullWidth
-              sx={{ mb: 1 }}
-            >
-              Choose Files
-            </Button>
-          </label>
-          {selectedFile && (
-            <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-              Selected file: {selectedFile.name}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Additional Attachments
             </Typography>
-          )}
-          <Typography variant="caption" color="textSecondary" display="block" sx={{ mb: 3 }}>
-            Max file size: 5MB. Supported formats: PDF, DOC, DOCX, JPG, PNG
-          </Typography>
+            <input
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              style={{ display: 'none' }}
+              id="attachments"
+              type="file"
+              multiple
+              onChange={handleFileChange}
+            />
+            <label htmlFor="attachments">
+              <Button
+                variant="outlined"
+                component="span"
+                startIcon={<UploadIcon />}
+                fullWidth
+              >
+                Choose Files
+              </Button>
+            </label>
+            {errors.attachments && (
+              <Typography color="error" variant="caption" display="block">
+                {errors.attachments}
+              </Typography>
+            )}
+            <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 1 }}>
+              Max file size: 5MB. Supported formats: PDF, DOC, DOCX, JPG, PNG
+            </Typography>
+          </Box>
 
           {/* Action Buttons */}
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
@@ -267,21 +325,21 @@ const GrievanceForm = () => {
               type="submit"
               variant="contained"
               color="primary"
-              disabled={loading}
+              disabled={isSubmitting}
               sx={{ minWidth: 150 }}
             >
-              Submit Grievance
+              {isSubmitting ? 'Submitting...' : 'Submit Grievance'}
             </Button>
             <Button
               variant="outlined"
-              onClick={handleCancel}
-              disabled={loading}
+              onClick={() => navigate('/dashboard')}
+              disabled={isSubmitting}
               sx={{ minWidth: 150 }}
             >
               Cancel
             </Button>
           </Box>
-        </Box>
+        </form>
       </Paper>
     </Container>
   );
