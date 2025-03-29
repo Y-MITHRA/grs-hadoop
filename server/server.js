@@ -4,6 +4,8 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -57,6 +59,10 @@ const grievanceSchema = new mongoose.Schema({
   department: { type: String, required: true },
   description: { type: String, required: true },
   location: { type: String, required: true },
+  coordinates: {
+    latitude: { type: Number },
+    longitude: { type: Number }
+  },
   attachments: [{ type: String }], // Store file paths or URLs
   status: { type: String, enum: ['pending', 'in-progress', 'resolved'], default: 'pending' },
   createdAt: { type: Date, default: Date.now },
@@ -64,6 +70,32 @@ const grievanceSchema = new mongoose.Schema({
 });
 
 const Grievance = mongoose.model('Grievance', grievanceSchema);
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only PDF, DOC, DOCX, JPG, and PNG files are allowed.'));
+    }
+  }
+});
 
 // Authentication middleware
 const isAuthenticated = (req, res, next) => {
@@ -161,22 +193,25 @@ app.get('/api/user', isAuthenticated, async (req, res) => {
 
 // Grievance routes
 // Submit grievance
-app.post('/api/grievances', isAuthenticated, async (req, res) => {
+app.post('/api/grievances', isAuthenticated, upload.array('attachments', 5), async (req, res) => {
   try {
-    const { title, description, department, name, email, location } = req.body;
+    const { title, description, department, location, coordinates } = req.body;
+    const user = await User.findById(req.session.userId);
+    
     const grievance = new Grievance({
       userId: req.session.userId,
       title,
       description,
       department,
-      name,
-      email,
+      name: user.name,
+      email: user.email,
       location,
-      attachments: req.body.attachments || []
+      coordinates: coordinates ? JSON.parse(coordinates) : null,
+      attachments: req.files ? req.files.map(file => file.path) : []
     });
     
     await grievance.save();
-    res.status(201).json(grievance);
+    res.status(201).json({ message: 'Grievance created successfully', grievance });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
