@@ -15,7 +15,6 @@ import { useAuth } from '../contexts/AuthContext';
 const Register = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,16 +30,14 @@ const Register = () => {
       return setError('Passwords do not match');
     }
 
-    // Basic phone number validation
-    const phoneRegex = /^[0-9]{10}$/;
-    if (!phoneRegex.test(phone)) {
-      return setError('Please enter a valid 10-digit phone number');
+    if (password.length < 6) {
+      return setError('Password must be at least 6 characters long');
     }
 
     setLoading(true);
 
     try {
-      await register(name, email, password, phone);
+      await register(name, email, password);
       navigate('/login');
     } catch (err) {
       setError(err.message || 'Failed to create account');
@@ -78,19 +75,6 @@ const Register = () => {
               onChange={(e) => setEmail(e.target.value)}
               margin="normal"
               required
-            />
-            <TextField
-              fullWidth
-              label="Phone Number"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              margin="normal"
-              required
-              helperText="Enter 10-digit phone number"
-              inputProps={{
-                pattern: '[0-9]{10}',
-                maxLength: 10
-              }}
             />
             <TextField
               fullWidth

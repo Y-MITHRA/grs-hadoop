@@ -13,6 +13,7 @@ import {
   IconButton,
   Tooltip,
   CircularProgress,
+  FormControl,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
@@ -20,21 +21,12 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 
-const departments = [
-  'Water Supply',
-  'Sewage',
-  'Billing',
-  'Maintenance',
-  'Quality Control',
-  'Other'
-];
-
 const SubmitGrievance = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     title: '',
-    department: '',
+    department: 'Water Department',
     description: '',
     location: '',
     coordinates: null,
@@ -82,7 +74,7 @@ const SubmitGrievance = () => {
           ...prev,
           coordinates: { latitude, longitude }
         }));
-        
+
         // Get address from coordinates using reverse geocoding
         fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
           .then(response => response.json())
@@ -132,7 +124,7 @@ const SubmitGrievance = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
+
     if (!validateForm()) {
       return;
     }
@@ -148,18 +140,20 @@ const SubmitGrievance = () => {
           formDataToSend.append(key, formData[key]);
         }
       });
-      
+
       files.forEach(file => {
         formDataToSend.append('attachments', file);
       });
 
+      const token = localStorage.getItem('token');
       await axios.post(
-        'http://localhost:5000/api/grievances',
+        'http://localhost:5002/api/grievances',
         formDataToSend,
         {
           withCredentials: true,
           headers: {
             'Content-Type': 'multipart/form-data',
+            'Authorization': `Bearer ${token}`
           },
         }
       );
@@ -227,21 +221,15 @@ const SubmitGrievance = () => {
                 />
               </Grid>
               <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  select
-                  label="Department"
-                  name="department"
-                  value={formData.department}
-                  onChange={handleInputChange}
-                  required
-                >
-                  {departments.map((dept) => (
-                    <MenuItem key={dept} value={dept}>
-                      {dept}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <FormControl fullWidth>
+                  <TextField
+                    label="Department"
+                    name="department"
+                    value="Water Department"
+                    disabled
+                    fullWidth
+                  />
+                </FormControl>
               </Grid>
               <Grid item xs={12}>
                 <Box sx={{ display: 'flex', gap: 1 }}>

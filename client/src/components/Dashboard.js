@@ -33,8 +33,12 @@ const Dashboard = () => {
 
   const fetchGrievances = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/grievances', {
-        withCredentials: true
+      const token = localStorage.getItem('token');
+      const response = await axios.get('http://localhost:5002/api/grievances', {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       console.log('Fetched grievances:', response.data);
       setGrievances(response.data);
