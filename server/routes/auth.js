@@ -14,7 +14,12 @@ router.post('/register', async (req, res) => {
     }
 
     // Create new user
-    const user = new User({ name, email, password });
+    const user = new User({
+      name,
+      email,
+      password,
+      department: 'RTO' // Set default department
+    });
     await user.save();
 
     // Set user session
@@ -27,7 +32,8 @@ router.post('/register', async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        department: user.department
       }
     });
   } catch (error) {

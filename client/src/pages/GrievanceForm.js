@@ -28,7 +28,7 @@ const GrievanceForm = () => {
   const { user } = useAuth();
   const [formData, setFormData] = useState({
     title: '',
-    department: '',
+    department: 'RTO',
     description: '',
     location: '',
     coordinates: null,
@@ -37,8 +37,6 @@ const GrievanceForm = () => {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGettingLocation, setIsGettingLocation] = useState(false);
-
-  const departments = ['License', 'Registration', 'Vehicle', 'Permits', 'Enforcement', 'Other'];
 
   const getCurrentLocation = () => {
     setIsGettingLocation(true);
@@ -123,9 +121,6 @@ const GrievanceForm = () => {
     if (!formData.title.trim()) {
       newErrors.title = 'Title is required';
     }
-    if (!formData.department) {
-      newErrors.department = 'Department is required';
-    }
     if (!formData.description.trim()) {
       newErrors.description = 'Description is required';
     }
@@ -153,16 +148,18 @@ const GrievanceForm = () => {
       if (formData.coordinates) {
         formDataToSend.append('coordinates', JSON.stringify(formData.coordinates));
       }
-      
+
       // Append attachments
       formData.attachments.forEach(file => {
         formDataToSend.append('attachments', file);
       });
 
-      const response = await axios.post('http://localhost:5000/api/grievances', formDataToSend, {
+      const token = localStorage.getItem('token');
+      const response = await axios.post('http://localhost:5001/api/grievances', formDataToSend, {
         withCredentials: true,
         headers: {
           'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
         },
       });
 
@@ -226,26 +223,14 @@ const GrievanceForm = () => {
             sx={{ mb: 2 }}
           />
 
-          <FormControl fullWidth required sx={{ mb: 2 }}>
-            <InputLabel>Department</InputLabel>
-            <Select
-              name="department"
-              value={formData.department}
-              onChange={handleChange}
+          <FormControl fullWidth margin="normal">
+            <TextField
               label="Department"
-              error={!!errors.department}
-            >
-              {departments.map((dept) => (
-                <MenuItem key={dept} value={dept}>
-                  {dept}
-                </MenuItem>
-              ))}
-            </Select>
-            {errors.department && (
-              <Typography color="error" variant="caption">
-                {errors.department}
-              </Typography>
-            )}
+              name="department"
+              value="RTO"
+              disabled
+              fullWidth
+            />
           </FormControl>
 
           <TextField

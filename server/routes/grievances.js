@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 const Grievance = require('../models/Grievance');
 const { isAuthenticated } = require('../middleware/auth');
 
@@ -54,31 +55,50 @@ router.post('/', isAuthenticated, async (req, res) => {
     }
 
     try {
-      const { title, department, description, location, coordinates } = req.body;
+      const { title, description, subDepartment, location, coordinates } = req.body;
+
+      // Enforce RTO department
+      const department = 'RTO';
 
       // Validate required fields
-      if (!title || !department || !description || !location) {
+      if (!title || !description || !location) {
         return res.status(400).json({ 
-          message: 'Missing required fields. Please provide title, department, description, and location.' 
-        });
-      }
-
-      // Validate department
-      const validDepartments = ['License', 'Registration', 'Vehicle', 'Permits', 'Enforcement', 'Other'];
-      if (!validDepartments.includes(department)) {
-        return res.status(400).json({ 
-          message: 'Invalid department. Must be one of: License, Registration, Vehicle, Permits, Enforcement, Other' 
+          message: 'Missing required fields. Please provide title, description, and location.' 
         });
       }
 
       // Create new grievance
+      if (!req.session || !req.session.userId) {
+        return res.status(401).json({ message: 'Not authenticated' });
+      }
+
+      // Find nearest officials from main GRS portal
+      let nearestOfficeOfficials = [];
+      try {
+        // Create a temporary grievance ID for finding nearest office
+        const tempId = `temp_${Date.now()}`;
+        const grsResponse = await axios.post('http://localhost:5000/api/grievances/find-nearest-office', {
+          department: 'RTO',
+          coordinates: coordinates ? JSON.parse(coordinates) : null
+        }, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        nearestOfficeOfficials = grsResponse.data.nearestOfficeOfficials;
+      } catch (error) {
+        console.error('Error finding nearest officials:', error);
+      }
+
       const grievance = new Grievance({
         title: title.trim(),
         department,
         description: description.trim(),
         location: location.trim(),
         coordinates: coordinates ? JSON.parse(coordinates) : null,
-        user: req.user._id
+        petitioner: req.session.userId,
+        portal_type: 'RTO',
+        assignedOfficials: nearestOfficeOfficials
       });
 
       // Add attachments if files were uploaded
@@ -117,9 +137,13 @@ router.post('/', isAuthenticated, async (req, res) => {
 // Get all grievances for the logged-in user
 router.get('/', isAuthenticated, async (req, res) => {
   try {
-    const grievances = await Grievance.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .lean();
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
+    const grievances = await Grievance.find({
+      petitioner: req.session.userId,
+      department: 'RTO'
+    }).sort({ createdAt: -1 }).lean();
     res.json(grievances);
   } catch (error) {
     console.error('Error fetching grievances:', error);
@@ -130,9 +154,12 @@ router.get('/', isAuthenticated, async (req, res) => {
 // Get a single grievance by ID
 router.get('/:id', isAuthenticated, async (req, res) => {
   try {
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
     const grievance = await Grievance.findOne({
       _id: req.params.id,
-      user: req.user._id
+      petitioner: req.session.userId
     }).lean();
 
     if (!grievance) {

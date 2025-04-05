@@ -34,8 +34,12 @@ const Dashboard = () => {
 
   const fetchGrievances = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/grievances', {
-        withCredentials: true
+      const token = localStorage.getItem('token');
+      const response = await axios.get('http://localhost:5001/api/grievances', {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       setGrievances(response.data);
     } catch (err) {
