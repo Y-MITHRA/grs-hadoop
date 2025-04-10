@@ -73,8 +73,10 @@ const AdminDashboard = () => {
     ];
 
     useEffect(() => {
-        fetchResourceData();
-        if (activeTab === 'escalated') {
+        console.log('Active tab changed to:', activeTab);
+        if (activeTab === 'dashboard') {
+            fetchResourceData();
+        } else if (activeTab === 'escalated') {
             fetchEscalatedGrievances();
             fetchOfficials();
         }
@@ -202,197 +204,210 @@ const AdminDashboard = () => {
         }
     };
 
+    const handleTabChange = (tab) => {
+        console.log('Changing tab to:', tab);
+        setActiveTab(tab);
+    };
+
+    const renderContent = () => {
+        switch (activeTab) {
+            case 'dashboard':
+                return (
+                    <>
+                        <Row className="mb-4">
+                            <Col>
+                                <h2>Admin Dashboard</h2>
+                                <p className="text-muted">Welcome to the admin dashboard</p>
+                            </Col>
+                        </Row>
+
+                        {/* Top Navbar */}
+                        <div className="d-flex justify-content-between align-items-center bg-white p-3 shadow-sm mb-3">
+                            <h4>Dashboard</h4>
+                            <div className="d-flex align-items-center">
+                                <Button variant="light" className="me-3 position-relative">
+                                    <Bell size={20} />
+                                    <span className="badge bg-danger position-absolute top-0 start-100 translate-middle">3</span>
+                                </Button>
+                                <div className="d-flex align-items-center">
+                                    <div className="rounded-circle bg-primary text-white p-2 me-2">A</div>
+                                    <span>Admin</span>
+                                    <ChevronDown size={16} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Quick Stats */}
+                        <Row className="mb-4">
+                            {quickStats.map((stat, index) => (
+                                <Col md={3} key={index}>
+                                    <Card className="p-3 shadow-sm">
+                                        <h6 className="text-muted">{stat.title}</h6>
+                                        <h4>{stat.value}</h4>
+                                        <span className={`text-${stat.trend.includes("+") ? "success" : "muted"}`}>{stat.trend}</span>
+                                    </Card>
+                                </Col>
+                            ))}
+                        </Row>
+
+                        {/* Charts */}
+                        <Row className="mb-4">
+                            <Col md={6}>
+                                <Card className="p-3 shadow-sm">
+                                    <h6>Department Performance</h6>
+                                    <BarChart width={400} height={250} data={departmentData}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="name" />
+                                        <YAxis />
+                                        <Tooltip />
+                                        <Legend />
+                                        <Bar dataKey="resolved" fill="#007bff" />
+                                    </BarChart>
+                                </Card>
+                            </Col>
+                            <Col md={6}>
+                                <Card className="p-3 shadow-sm">
+                                    <h6>Monthly Trends</h6>
+                                    <LineChart width={400} height={250} data={monthlyTrends}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis dataKey="month" />
+                                        <YAxis />
+                                        <Tooltip />
+                                        <Legend />
+                                        <Line type="monotone" dataKey="cases" stroke="#28a745" />
+                                    </LineChart>
+                                </Card>
+                            </Col>
+                        </Row>
+
+                        {/* Resource Management Section */}
+                        <Card className="shadow-sm mt-4">
+                            <Card.Header>
+                                <h6>Department Resource Management</h6>
+                            </Card.Header>
+                            <Card.Body>
+                                {resourceLoading ? (
+                                    <div className="text-center">Loading resource data...</div>
+                                ) : resourceError ? (
+                                    <div className="text-danger">{resourceError}</div>
+                                ) : (
+                                    <Table responsive>
+                                        <thead>
+                                            <tr>
+                                                <th>Department</th>
+                                                <th>Grievance ID</th>
+                                                <th>Start Date</th>
+                                                <th>End Date</th>
+                                                <th>Requirements</th>
+                                                <th>Funds Required</th>
+                                                <th>Resources</th>
+                                                <th>Manpower</th>
+                                                <th>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {resourceData.map((resource) => (
+                                                <tr key={resource._id}>
+                                                    <td>{resource.department}</td>
+                                                    <td className="text-primary">{resource.grievanceId}</td>
+                                                    <td>{new Date(resource.startDate).toLocaleDateString()}</td>
+                                                    <td>{new Date(resource.endDate).toLocaleDateString()}</td>
+                                                    <td>{resource.requirementsNeeded}</td>
+                                                    <td>₹{resource.fundsRequired}</td>
+                                                    <td>{resource.resourcesRequired}</td>
+                                                    <td>{resource.manpowerNeeded}</td>
+                                                    <td>
+                                                        <span className={`badge bg-${resource.status === 'Completed' ? 'success' : 'warning'}`}>
+                                                            {resource.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </Table>
+                                )}
+                            </Card.Body>
+                        </Card>
+                    </>
+                );
+            case 'escalated':
+                return (
+                    <Card className="shadow-sm">
+                        <Card.Header className="d-flex justify-content-between align-items-center">
+                            <h6 className="mb-0">Escalated Grievances</h6>
+                            <Button variant="outline-primary" size="sm" onClick={fetchEscalatedGrievances}>
+                                Refresh
+                            </Button>
+                        </Card.Header>
+                        <Card.Body>
+                            <Table responsive>
+                                <thead>
+                                    <tr>
+                                        <th>Grievance ID</th>
+                                        <th>Title</th>
+                                        <th>Department</th>
+                                        <th>Status</th>
+                                        <th>Assigned Official</th>
+                                        <th>Created At</th>
+                                        <th>Escalated At</th>
+                                        <th>Days Since Escalation</th>
+                                        <th>Escalation Reason</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {escalatedGrievances.map((grievance) => (
+                                        <tr key={grievance._id}>
+                                            <td>{grievance.petitionId}</td>
+                                            <td>{grievance.title}</td>
+                                            <td>{grievance.department}</td>
+                                            <td>
+                                                <span className={`badge bg-${grievance.status === 'resolved' ? 'success' : 'warning'}`}>
+                                                    {grievance.status}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                {grievance.assignedTo ?
+                                                    `${grievance.assignedTo.firstName} ${grievance.assignedTo.lastName}` :
+                                                    'Unassigned'}
+                                            </td>
+                                            <td>{new Date(grievance.createdAt).toLocaleDateString()}</td>
+                                            <td>{new Date(grievance.escalatedAt).toLocaleDateString()}</td>
+                                            <td>
+                                                {Math.floor((new Date() - new Date(grievance.escalatedAt)) / (1000 * 60 * 60 * 24))}
+                                            </td>
+                                            <td>{grievance.escalationReason}</td>
+                                            <td>
+                                                <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                        setSelectedGrievance(grievance);
+                                                        setShowResponseModal(true);
+                                                    }}
+                                                >
+                                                    Respond
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </Table>
+                        </Card.Body>
+                    </Card>
+                );
+            default:
+                return null;
+        }
+    };
+
     return (
         <div className="d-flex">
-            <AdminSidebar activeTab={activeTab} onTabChange={setActiveTab} />
+            <AdminSidebar activeTab={activeTab} onTabChange={handleTabChange} />
             <div className="flex-grow-1">
                 <NavBar />
                 <Container fluid className="py-3">
-                    {activeTab === 'dashboard' ? (
-                        <>
-                            <Row className="mb-4">
-                                <Col>
-                                    <h2>Admin Dashboard</h2>
-                                    <p className="text-muted">Welcome to the admin dashboard</p>
-                                </Col>
-                            </Row>
-
-                            {/* Top Navbar */}
-                            <div className="d-flex justify-content-between align-items-center bg-white p-3 shadow-sm mb-3">
-                                <h4>Dashboard</h4>
-                                <div className="d-flex align-items-center">
-                                    <Button variant="light" className="me-3 position-relative">
-                                        <Bell size={20} />
-                                        <span className="badge bg-danger position-absolute top-0 start-100 translate-middle">3</span>
-                                    </Button>
-                                    <div className="d-flex align-items-center">
-                                        <div className="rounded-circle bg-primary text-white p-2 me-2">A</div>
-                                        <span>Admin</span>
-                                        <ChevronDown size={16} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Quick Stats */}
-                            <Row className="mb-4">
-                                {quickStats.map((stat, index) => (
-                                    <Col md={3} key={index}>
-                                        <Card className="p-3 shadow-sm">
-                                            <h6 className="text-muted">{stat.title}</h6>
-                                            <h4>{stat.value}</h4>
-                                            <span className={`text-${stat.trend.includes("+") ? "success" : "muted"}`}>{stat.trend}</span>
-                                        </Card>
-                                    </Col>
-                                ))}
-                            </Row>
-
-                            {/* Charts */}
-                            <Row className="mb-4">
-                                <Col md={6}>
-                                    <Card className="p-3 shadow-sm">
-                                        <h6>Department Performance</h6>
-                                        <BarChart width={400} height={250} data={departmentData}>
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis dataKey="name" />
-                                            <YAxis />
-                                            <Tooltip />
-                                            <Legend />
-                                            <Bar dataKey="resolved" fill="#007bff" />
-                                        </BarChart>
-                                    </Card>
-                                </Col>
-                                <Col md={6}>
-                                    <Card className="p-3 shadow-sm">
-                                        <h6>Monthly Trends</h6>
-                                        <LineChart width={400} height={250} data={monthlyTrends}>
-                                            <CartesianGrid strokeDasharray="3 3" />
-                                            <XAxis dataKey="month" />
-                                            <YAxis />
-                                            <Tooltip />
-                                            <Legend />
-                                            <Line type="monotone" dataKey="cases" stroke="#28a745" />
-                                        </LineChart>
-                                    </Card>
-                                </Col>
-                            </Row>
-
-                            {/* Cases Table */}
-
-
-                            {/* Resource Management Section */}
-                            <Card className="shadow-sm mt-4">
-                                <Card.Header>
-                                    <h6>Department Resource Management</h6>
-                                </Card.Header>
-                                <Card.Body>
-                                    {resourceLoading ? (
-                                        <div className="text-center">Loading resource data...</div>
-                                    ) : resourceError ? (
-                                        <div className="text-danger">{resourceError}</div>
-                                    ) : (
-                                        <Table responsive>
-                                            <thead>
-                                                <tr>
-                                                    <th>Department</th>
-                                                    <th>Grievance ID</th>
-                                                    <th>Start Date</th>
-                                                    <th>End Date</th>
-                                                    <th>Requirements</th>
-                                                    <th>Funds Required</th>
-                                                    <th>Resources</th>
-                                                    <th>Manpower</th>
-                                                    <th>Status</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {resourceData.map((resource) => (
-                                                    <tr key={resource._id}>
-                                                        <td>{resource.department}</td>
-                                                        <td className="text-primary">{resource.grievanceId}</td>
-                                                        <td>{new Date(resource.startDate).toLocaleDateString()}</td>
-                                                        <td>{new Date(resource.endDate).toLocaleDateString()}</td>
-                                                        <td>{resource.requirementsNeeded}</td>
-                                                        <td>₹{resource.fundsRequired}</td>
-                                                        <td>{resource.resourcesRequired}</td>
-                                                        <td>{resource.manpowerNeeded}</td>
-                                                        <td>
-                                                            <span className={`badge bg-${resource.status === 'Completed' ? 'success' : 'warning'}`}>
-                                                                {resource.status}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </Table>
-                                    )}
-                                </Card.Body>
-                            </Card>
-                        </>
-                    ) : activeTab === 'escalated' ? (
-                        <Card className="shadow-sm">
-                            <Card.Header className="d-flex justify-content-between align-items-center">
-                                <h6 className="mb-0">Escalated Grievances</h6>
-                                <Button variant="outline-primary" size="sm" onClick={fetchEscalatedGrievances}>
-                                    Refresh
-                                </Button>
-                            </Card.Header>
-                            <Card.Body>
-                                <Table responsive>
-                                    <thead>
-                                        <tr>
-                                            <th>Grievance ID</th>
-                                            <th>Title</th>
-                                            <th>Department</th>
-                                            <th>Status</th>
-                                            <th>Assigned Official</th>
-                                            <th>Created At</th>
-                                            <th>Escalated At</th>
-                                            <th>Days Since Escalation</th>
-                                            <th>Escalation Reason</th>
-                                            <th>Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {escalatedGrievances.map((grievance) => (
-                                            <tr key={grievance._id}>
-                                                <td>{grievance.petitionId}</td>
-                                                <td>{grievance.title}</td>
-                                                <td>{grievance.department}</td>
-                                                <td>
-                                                    <span className={`badge bg-${grievance.status === 'resolved' ? 'success' : 'warning'}`}>
-                                                        {grievance.status}
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    {grievance.assignedTo ?
-                                                        `${grievance.assignedTo.firstName} ${grievance.assignedTo.lastName}` :
-                                                        'Unassigned'}
-                                                </td>
-                                                <td>{new Date(grievance.createdAt).toLocaleDateString()}</td>
-                                                <td>{new Date(grievance.escalatedAt).toLocaleDateString()}</td>
-                                                <td>
-                                                    {Math.floor((new Date() - new Date(grievance.escalatedAt)) / (1000 * 60 * 60 * 24))}
-                                                </td>
-                                                <td>{grievance.escalationReason}</td>
-                                                <td>
-                                                    <Button
-                                                        variant="primary"
-                                                        size="sm"
-                                                        onClick={() => {
-                                                            setSelectedGrievance(grievance);
-                                                            setShowResponseModal(true);
-                                                        }}
-                                                    >
-                                                        Respond
-                                                    </Button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </Table>
-                            </Card.Body>
-                        </Card>
-                    ) : null}
+                    {renderContent()}
                 </Container>
             </div>
 

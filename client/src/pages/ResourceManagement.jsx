@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import NavBar from '../components/NavBar';
 import AdminSidebar from '../components/AdminSidebar';
 import Footer from '../shared/Footer';
-import { Container, Row, Col, Form, Table, Badge, Spinner } from 'react-bootstrap';
+import { Container, Row, Col, Form, Table, Badge, Spinner, Modal, Button } from 'react-bootstrap';
 import { toast } from 'react-hot-toast';
+import { Eye } from 'lucide-react';
 
 const ResourceManagement = () => {
     const [resourceData, setResourceData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [showDetails, setShowDetails] = useState(false);
+    const [selectedResource, setSelectedResource] = useState(null);
     const [filters, setFilters] = useState({
         department: '',
         status: '',
@@ -58,6 +61,33 @@ const ResourceManagement = () => {
             ...prev,
             [name]: value
         }));
+    };
+
+    const handleViewDetails = async (resource) => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Fetch from the respective department's API
+            const response = await fetch(`http://localhost:5000/api/grievances/department/${resource.department}/${resource.grievanceId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch grievance details');
+            }
+
+            const data = await response.json();
+            setSelectedResource(data.grievance);
+            setShowDetails(true);
+        } catch (error) {
+            console.error('Error fetching grievance details:', error);
+            toast.error('Failed to load grievance details');
+        }
     };
 
     const filteredData = resourceData.filter(item => {
@@ -182,13 +212,13 @@ const ResourceManagement = () => {
                                         <td>
                                             <Badge bg={
                                                 resource.priority === 'high' ? 'danger' :
-                                                resource.priority === 'medium' ? 'warning' : 'info'
+                                                    resource.priority === 'medium' ? 'warning' : 'info'
                                             }>
                                                 {resource.priority}
                                             </Badge>
                                         </td>
                                         <td>
-                                            {new Date(resource.startDate).toLocaleDateString()} - 
+                                            {new Date(resource.startDate).toLocaleDateString()} -
                                             {new Date(resource.endDate).toLocaleDateString()}
                                         </td>
                                         <td>{resource.progress || '0%'}</td>
@@ -196,17 +226,51 @@ const ResourceManagement = () => {
                                         <td>{resource.resourcesRequired}</td>
                                         <td>{resource.manpowerNeeded} Official</td>
                                         <td>
-                                            <a href="#" className="text-primary">View</a>
+                                            <Button
+                                                variant="link"
+                                                className="p-0 text-primary"
+                                                onClick={() => handleViewDetails(resource)}
+                                            >
+                                                <Eye size={16} className="me-1" />
+                                                View
+                                            </Button>
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </Table>
                     )}
+
+                    {/* Details Modal */}
+                    <Modal show={showDetails} onHide={() => setShowDetails(false)}>
+                        <Modal.Header closeButton>
+                            <Modal.Title>Grievance Details</Modal.Title>
+                        </Modal.Header>
+                        <Modal.Body>
+                            {selectedResource && (
+                                <div className="grievance-details">
+                                    <p><strong>ID:</strong> {selectedResource._id}</p>
+                                    <p><strong>Title:</strong> {selectedResource.title}</p>
+                                    <p><strong>Description:</strong> {selectedResource.description}</p>
+                                    <p><strong>Status:</strong> {selectedResource.status}</p>
+                                    <p><strong>Priority:</strong> {selectedResource.priority}</p>
+                                    <p><strong>Created At:</strong> {new Date(selectedResource.createdAt).toLocaleString()}</p>
+                                    <p><strong>Location:</strong> {selectedResource.location}</p>
+                                    {selectedResource.assignedTo && (
+                                        <p><strong>Assigned To:</strong> {selectedResource.assignedTo.firstName} {selectedResource.assignedTo.lastName}</p>
+                                    )}
+                                </div>
+                            )}
+                        </Modal.Body>
+                        <Modal.Footer>
+                            <Button variant="secondary" onClick={() => setShowDetails(false)}>
+                                Close
+                            </Button>
+                        </Modal.Footer>
+                    </Modal>
                 </Container>
-                
+                <Footer />
             </div>
-           
         </div>
     );
 };

@@ -235,6 +235,5 @@ grievanceSchema.index({ petitioner: 1 });
 grievanceSchema.index({ assignedTo: 1 });
 grievanceSchema.index({ coordinates: '2dsphere' }); // For geospatial queries
 
-const Grievance = mongoose.model('Grievance', grievanceSchema);
-
+const Grievance = mongoose.models.Grievance || mongoose.model('Grievance', grievanceSchema);
 export default Grievance; 

@@ -119,13 +119,28 @@ export const getTimelineStages = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const grievance = await Grievance.findById(id);
+        const grievance = await Grievance.findOne({ petitionId: id });
         if (!grievance) {
             return res.status(404).json({ error: 'Grievance not found' });
         }
 
+        // Start with the initial "Grievance Filed" stage
+        let stages = [{
+            stageName: 'Grievance Filed',
+            date: grievance.createdAt,
+            description: 'Grievance submitted to the system'
+        }];
+
+        // Add all other stages from the grievance
+        if (grievance.timelineStages && grievance.timelineStages.length > 0) {
+            stages = stages.concat(grievance.timelineStages);
+        }
+
+        // Sort stages by date
+        stages.sort((a, b) => new Date(a.date) - new Date(b.date));
+
         res.status(200).json({
-            timelineStages: grievance.timelineStages
+            timelineStages: stages
         });
     } catch (error) {
         console.error('Error getting timeline stages:', error);
@@ -1138,17 +1153,28 @@ export const respondToEscalation = async (req, res) => {
         grievance.escalationResponse = escalationResponse;
         grievance.escalationStatus = 'Resolved';
 
-        // Update status if provided
-        if (newStatus) {
+        // Handle reassignment
+        if (newAssignedTo) {
+            const previousOfficialId = grievance.assignedTo;
+            grievance.assignedTo = newAssignedTo;
+            grievance.status = 'pending'; // Reset to pending for new official
+            grievance.isReassigned = true; // Add flag for reassignment
+
+            // Add to status history
+            grievance.statusHistory.push({
+                status: 'pending',
+                updatedBy: adminId,
+                updatedByType: 'admin',
+                comment: `Grievance reassigned to new official. Previous official: ${previousOfficialId}`
+            });
+        }
+
+        // Update status if provided and not reassigning
+        if (newStatus && !newAssignedTo) {
             grievance.status = newStatus;
         }
 
-        // Update assigned official if provided
-        if (newAssignedTo) {
-            grievance.assignedTo = newAssignedTo;
-        }
-
-        // Add to status history
+        // Add escalation response to status history
         grievance.statusHistory.push({
             status: grievance.status,
             updatedBy: adminId,
@@ -1181,44 +1207,74 @@ export const checkEligibleEscalations = async () => {
         console.log('Seven days ago:', sevenDaysAgo);
 
         // First, get all grievances that are not escalated
-        const allGrievances = await Grievance.find({ isEscalated: false });
-        console.log(`Found ${allGrievances.length} non-escalated grievances`);
+        const allGrievances = await Grievance.find({
+            isEscalated: false,
+            $or: [
+                // Cases in initial stages for more than 7 days
+                {
+                    status: { $in: ['pending', 'assigned', 'start'] },
+                    createdAt: { $lt: sevenDaysAgo }
+                },
+                // Cases with resource management but no timeline updates
+                {
+                    'resourceManagement.startDate': { $exists: true },
+                    'resourceManagement.endDate': { $exists: true }
+                }
+            ]
+        });
 
-        // Filter grievances in JavaScript instead of MongoDB query
+        console.log(`Found ${allGrievances.length} potential grievances to check`);
+
+        // Filter grievances that need escalation
         const eligibleGrievances = allGrievances.filter(grievance => {
             // Condition 1: Case in pending/assigned/start for more than 7 days
             if (['pending', 'assigned', 'start'].includes(grievance.status) &&
                 grievance.createdAt < sevenDaysAgo) {
+                console.log(`Grievance ${grievance._id} eligible due to status duration`);
                 return true;
             }
 
-            // Condition 2: Half the days have passed without milestone updates
+            // Condition 2: Check timeline progress
             if (grievance.resourceManagement &&
                 grievance.resourceManagement.startDate &&
                 grievance.resourceManagement.endDate) {
 
-                // Parse dates
                 const startDate = new Date(grievance.resourceManagement.startDate);
                 const endDate = new Date(grievance.resourceManagement.endDate);
                 const now = new Date();
 
-                // Calculate total duration and half duration
-                const totalDuration = endDate - startDate;
-                const halfDuration = totalDuration / 2;
+                // Calculate total duration and elapsed time
+                const totalDuration = endDate.getTime() - startDate.getTime();
+                const elapsedTime = now.getTime() - startDate.getTime();
+                const progressPercentage = (elapsedTime / totalDuration) * 100;
 
-                // Check if half the time has passed
-                if (now - startDate > halfDuration) {
-                    // Check if no milestone updates or last update was before halfway point
+                console.log(`Grievance ${grievance._id} timeline progress:`, {
+                    startDate: startDate.toISOString(),
+                    endDate: endDate.toISOString(),
+                    now: now.toISOString(),
+                    totalDuration: totalDuration / (1000 * 60 * 60 * 24) + ' days',
+                    elapsedTime: elapsedTime / (1000 * 60 * 60 * 24) + ' days',
+                    progressPercentage: progressPercentage.toFixed(2) + '%',
+                    timelineStages: grievance.timelineStages?.length || 0
+                });
+
+                // Check if more than 50% time has passed
+                if (progressPercentage >= 50) {
+                    // No timeline stages at all
                     if (!grievance.timelineStages || grievance.timelineStages.length === 0) {
-                        return true; // No milestones at all
+                        console.log(`Grievance ${grievance._id} eligible: No timeline stages`);
+                        return true;
                     }
 
-                    // Get the last milestone date
-                    const lastMilestoneDate = new Date(grievance.timelineStages[grievance.timelineStages.length - 1].date);
-                    const halfwayPoint = new Date(startDate.getTime() + halfDuration);
+                    // Check if the last update was before the halfway point
+                    const halfwayPoint = new Date(startDate.getTime() + (totalDuration / 2));
+                    const lastUpdate = grievance.timelineStages.length > 0
+                        ? new Date(grievance.timelineStages[grievance.timelineStages.length - 1].date)
+                        : startDate;
 
-                    if (lastMilestoneDate < halfwayPoint) {
-                        return true; // Last milestone was before halfway point
+                    if (lastUpdate < halfwayPoint) {
+                        console.log(`Grievance ${grievance._id} eligible: Last update before halfway point`);
+                        return true;
                     }
                 }
             }
@@ -1227,18 +1283,18 @@ export const checkEligibleEscalations = async () => {
         });
 
         console.log('Found eligible grievances:', eligibleGrievances.length);
-        eligibleGrievances.forEach(g => {
-            console.log('Eligible grievance:', {
-                id: g._id,
-                status: g.status,
-                startDate: g.resourceManagement?.startDate,
-                endDate: g.resourceManagement?.endDate,
-                timelineStages: g.timelineStages?.length || 0
-            });
-        });
 
         // Mark eligible grievances
         for (const grievance of eligibleGrievances) {
+            console.log('Marking grievance for escalation:', {
+                id: grievance._id,
+                petitionId: grievance.petitionId,
+                department: grievance.department,
+                status: grievance.status,
+                startDate: grievance.resourceManagement?.startDate,
+                endDate: grievance.resourceManagement?.endDate
+            });
+
             grievance.escalationEligible = true;
             await grievance.save();
         }

@@ -30,6 +30,7 @@ import {
     respondToEscalation
 } from '../controllers/grievanceController.js';
 import { processDocument, upload } from '../controllers/documentController.js';
+import Grievance from '../models/Grievance.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -124,5 +125,22 @@ router.get('/:id/timeline-stages', getTimelineStages);
 router.post('/:id/escalate', auth, escalateGrievance);
 router.get('/escalated', auth, getEscalatedGrievances);
 router.post('/:id/escalation-response', auth, respondToEscalation);
+
+router.get('/track/:id', async (req, res) => {
+    try {
+        const grievance = await Grievance.findOne({ petitionId: req.params.id })
+            .populate('assignedTo', 'firstName lastName')
+            .select('-__v');
+
+        if (!grievance) {
+            return res.status(404).json({ error: 'Grievance not found' });
+        }
+
+        res.json({ grievance });
+    } catch (error) {
+        console.error('Error tracking grievance:', error);
+        res.status(500).json({ error: 'Failed to track grievance' });
+    }
+});
 
 export default router;

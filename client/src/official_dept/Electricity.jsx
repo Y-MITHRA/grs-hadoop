@@ -4,6 +4,7 @@ import NavBar_Departments from "../components/NavBar_Departments";
 import { useAuth } from "../context/AuthContext";
 import { toast } from 'react-hot-toast';
 import ChatComponent from '../components/ChatComponent';
+import { MessageCircle } from 'lucide-react';
 
 const ElectricityDashboard = () => {
   const { user } = useAuth();
@@ -166,10 +167,10 @@ const ElectricityDashboard = () => {
 
       setShowResourceModal(false);
       toast.success('Resource management details submitted successfully');
-      
+
       // Automatically start progress after resource management submission
       await handleStartProgress(grievanceId);
-      
+
       fetchGrievances();
     } catch (error) {
       console.error('Error submitting resource management:', error);
@@ -492,15 +493,17 @@ const ElectricityDashboard = () => {
                           </button>
                         </>
                       )}
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setSelectedGrievance(grievance);
-                          setShowChat(true);
-                        }}
-                      >
-                        Chat
-                      </button>
+                      <div className="d-flex gap-2">
+                        {grievance.status === 'in-progress' && (
+                          <button
+                            className="btn btn-sm btn-primary"
+                            onClick={() => handleViewChat(grievance)}
+                          >
+                            <MessageCircle size={16} className="me-1" />
+                            Chat
+                          </button>
+                        )}
+                      </div>
                       <button
                         className="btn btn-outline-primary"
                         onClick={() => {
@@ -715,7 +718,7 @@ const ElectricityDashboard = () => {
                 ></button>
               </div>
               <div className="modal-body" style={{ height: '500px', padding: 0 }}>
-                <ChatComponent 
+                <ChatComponent
                   grievanceId={selectedGrievance._id}
                   petitionerId={selectedGrievance.petitioner?._id || selectedGrievance.petitioner}
                   officialId={user.id}

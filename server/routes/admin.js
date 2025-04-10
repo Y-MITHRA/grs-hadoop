@@ -4,6 +4,7 @@ import Admin from '../models/Admin.js';
 import { generateToken } from '../middleware/auth.js';
 import { getResourceManagementData } from '../controllers/authController.js';
 import { auth } from '../middleware/auth.js';
+import Official from '../models/Official.js';
 
 const router = express.Router();
 
@@ -112,6 +113,18 @@ router.get('/resource-management', auth, async (req, res) => {
     } catch (error) {
         console.error("Error:", error);
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Get all officials
+router.get('/officials', auth, async (req, res) => {
+    try {
+        const officials = await Official.find()
+            .select('firstName lastName department email');
+        res.json({ officials });
+    } catch (error) {
+        console.error('Error fetching officials:', error);
+        res.status(500).json({ error: 'Failed to fetch officials' });
     }
 });
 

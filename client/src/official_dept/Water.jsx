@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/WaterBoard.css";
 import NavBar_Departments from "../components/NavBar_Departments";
 import { useAuth } from "../context/AuthContext";
-import { FaSearch, FaUser, FaSignOutAlt, FaCheck, FaPlay, FaCheckCircle, FaClock, FaClipboardList } from 'react-icons/fa';
+import { FaSearch, FaUser, FaSignOutAlt, FaCheck, FaPlay, FaCheckCircle, FaClock, FaClipboardList, FaComments } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import ChatComponent from '../components/ChatComponent';
 import "../styles/Chat.css";
@@ -165,10 +165,10 @@ const WaterDashboard = () => {
 
       setShowResourceModal(false);
       toast.success('Resource management details submitted successfully');
-      
+
       // Automatically start progress after resource management submission
       await handleStartProgress(grievanceId);
-      
+
       fetchGrievances();
     } catch (error) {
       console.error('Error submitting resource management:', error);
@@ -258,7 +258,7 @@ const WaterDashboard = () => {
           });
 
           const uploadData = await uploadResponse.json();
-          
+
           if (!uploadResponse.ok) {
             throw new Error(uploadData.error || 'Failed to upload resolution document');
           }
@@ -501,12 +501,17 @@ const WaterDashboard = () => {
                             </button>
                           </>
                         )}
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => handleViewChat(grievance)}
-                        >
-                          Chat
-                        </button>
+                        <div className="d-flex gap-2">
+                          {grievance.status === 'in-progress' && (
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => handleViewChat(grievance)}
+                            >
+                              <FaComments size={16} className="me-1" />
+                              Chat
+                            </button>
+                          )}
+                        </div>
                         <button
                           className="btn btn-primary"
                           onClick={() => {
@@ -600,7 +605,7 @@ const WaterDashboard = () => {
         </div>
       )}
 
-      
+
       {showResourceModal && selectedGrievance && (
         <div className="modal">
           <div className="modal-content">
@@ -748,7 +753,7 @@ const WaterDashboard = () => {
                 ></button>
               </div>
               <div className="modal-body" style={{ height: '500px', padding: 0 }}>
-                <ChatComponent 
+                <ChatComponent
                   grievanceId={selectedGrievance._id}
                   petitionerId={selectedGrievance.petitioner?._id || selectedGrievance.petitioner}
                   officialId={user.id}

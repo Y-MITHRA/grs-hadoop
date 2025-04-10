@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Footer from "../shared/Footer";
 import NavBar from "../components/NavBar";
-import { Plus, Search, Filter, RefreshCw, Eye, MessageCircle, AlertCircle, Clock, ArrowLeft } from "lucide-react";
+import { Plus, Search, Filter, RefreshCw, Eye, MessageCircle, AlertCircle, Clock, ArrowLeft, Star } from "lucide-react";
 import moment from 'moment';
 import ChatComponent from '../components/ChatComponent';
 import TimelineView from '../components/TimelineView';
@@ -37,6 +37,10 @@ const PetitionerDashboard = () => {
     const [showEscalationModal, setShowEscalationModal] = useState(false);
     const [selectedGrievanceForEscalation, setSelectedGrievanceForEscalation] = useState(null);
     const [escalationReason, setEscalationReason] = useState('');
+    const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+    const [feedbackRating, setFeedbackRating] = useState(0);
+    const [feedbackComment, setFeedbackComment] = useState('');
+    const [selectedGrievanceForFeedback, setSelectedGrievanceForFeedback] = useState(null);
 
     useEffect(() => {
         fetchGrievances();
@@ -47,13 +51,25 @@ const PetitionerDashboard = () => {
     }, []);
 
     useEffect(() => {
-        const filtered = grievances.filter(grievance =>
+        // First filter by status (activeTab)
+        let statusFiltered;
+        if (activeTab === 'all') {
+            statusFiltered = grievances;
+        } else if (activeTab === 'assigned') {
+            statusFiltered = grievances.filter(g => g.status === 'assigned');
+        } else {
+            statusFiltered = grievances.filter(g => g.status === activeTab);
+        }
+
+        // Then apply search filter
+        const searchFiltered = statusFiltered.filter(grievance =>
             grievance.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            grievance.grievanceId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            grievance.petitionId.toLowerCase().includes(searchTerm.toLowerCase()) ||
             grievance.department.toLowerCase().includes(searchTerm.toLowerCase())
         );
-        setFilteredGrievances(filtered);
-    }, [searchTerm, grievances]);
+
+        setFilteredGrievances(searchFiltered);
+    }, [activeTab, searchTerm, grievances]);
 
     const fetchGrievances = async () => {
         setLoading(true);
@@ -75,12 +91,7 @@ const PetitionerDashboard = () => {
                     resourceManagement: grievance.resourceManagement || null
                 }));
 
-                // Filter based on active tab
-                const filteredGrievances = activeTab === 'all'
-                    ? transformedGrievances
-                    : transformedGrievances.filter(g => g.status === activeTab);
-
-                setGrievances(filteredGrievances);
+                setGrievances(transformedGrievances);
 
                 // Calculate stats
                 const stats = {
@@ -173,6 +184,67 @@ const PetitionerDashboard = () => {
         }
     };
 
+    const handleGiveFeedback = (grievance) => {
+        setSelectedGrievanceForFeedback(grievance);
+        setShowFeedbackModal(true);
+    };
+
+    const submitFeedback = async () => {
+        try {
+            if (!selectedGrievanceForFeedback) {
+                toast.error('No grievance selected for feedback');
+                return;
+            }
+
+            // Check if feedback already exists
+            if (selectedGrievanceForFeedback.feedback) {
+                toast.error('Feedback has already been submitted for this grievance');
+                setShowFeedbackModal(false);
+                return;
+            }
+
+            if (feedbackRating === 0) {
+                toast.error('Please select a rating');
+                return;
+            }
+
+            const response = await authenticatedFetch(`http://localhost:5000/api/grievances/${selectedGrievanceForFeedback._id}/feedback`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    rating: feedbackRating,
+                    comment: feedbackComment
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success('Thank you for your feedback!');
+                setShowFeedbackModal(false);
+                setFeedbackRating(0);
+                setFeedbackComment('');
+                setSelectedGrievanceForFeedback(null);
+                fetchGrievances(); // Refresh the list
+            } else {
+                throw new Error(data.error || 'Failed to submit feedback');
+            }
+        } catch (error) {
+            console.error('Error submitting feedback:', error);
+            toast.error(error.message || 'Failed to submit feedback');
+            // Close the modal if it was a duplicate submission error
+            if (error.message.includes('already submitted')) {
+                setShowFeedbackModal(false);
+                setFeedbackRating(0);
+                setFeedbackComment('');
+                setSelectedGrievanceForFeedback(null);
+                fetchGrievances(); // Refresh to get latest data
+            }
+        }
+    };
+
     return (
         <>
             <NavBar />
@@ -252,6 +324,12 @@ const PetitionerDashboard = () => {
                                 onClick={() => setActiveTab('pending')}
                             >
                                 Pending
+                            </button>
+                            <button
+                                className={`btn ${activeTab === 'assigned' ? 'btn-primary' : 'btn-outline-primary'}`}
+                                onClick={() => setActiveTab('assigned')}
+                            >
+                                Assigned
                             </button>
                             <button
                                 className={`btn ${activeTab === 'in-progress' ? 'btn-primary' : 'btn-outline-primary'}`}
@@ -342,7 +420,7 @@ const PetitionerDashboard = () => {
                                         <td>{moment(grievance.updatedAt).format('MMM D, YYYY')}</td>
                                         <td>
                                             <div className="d-flex gap-2">
-                                                {grievance.assignedTo && (
+                                                {grievance.assignedTo && grievance.status === 'in-progress' && (
                                                     <button
                                                         className="btn btn-sm btn-primary"
                                                         onClick={() => handleViewChat(grievance)}
@@ -361,17 +439,30 @@ const PetitionerDashboard = () => {
                                                     <Clock size={16} className="me-1" />
                                                     Timeline
                                                 </button>
-                                                <button
-                                                    className="btn btn-sm btn-outline-primary me-2"
-                                                    onClick={() => {
-                                                        setSelectedGrievance(grievance);
-                                                        setShowDocumentModal(true);
-                                                    }}
-                                                    disabled={!grievance.resolutionDocument}
-                                                >
-                                                    <Eye size={16} className="me-1" />
-                                                    View Resolution
-                                                </button>
+                                                {grievance.status === 'resolved' && (
+                                                    <>
+                                                        <button
+                                                            className="btn btn-sm btn-outline-primary me-2"
+                                                            onClick={() => {
+                                                                setSelectedGrievance(grievance);
+                                                                setShowDocumentModal(true);
+                                                            }}
+                                                            disabled={!grievance.resolutionDocument}
+                                                        >
+                                                            <Eye size={16} className="me-1" />
+                                                            View Resolution
+                                                        </button>
+                                                        {!grievance.feedback && (
+                                                            <button
+                                                                className="btn btn-sm btn-success"
+                                                                onClick={() => handleGiveFeedback(grievance)}
+                                                            >
+                                                                <Star size={16} className="me-1" />
+                                                                Give Feedback
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
                                                 {grievance.escalationEligible && !grievance.isEscalated && (
                                                     <button
                                                         className="btn btn-warning btn-sm"
@@ -409,7 +500,7 @@ const PetitionerDashboard = () => {
                                 </div>
                                 <div className="modal-body">
                                     <TimelineView
-                                        grievanceId={selectedGrievance._id}
+                                        grievanceId={selectedGrievance.grievanceId}
                                         onBack={() => {
                                             setShowTimeline(false);
                                             setSelectedGrievance(null);
@@ -520,6 +611,50 @@ const PetitionerDashboard = () => {
                         </Button>
                         <Button variant="warning" onClick={submitEscalation}>
                             Submit Escalation
+                        </Button>
+                    </Modal.Footer>
+                </Modal>
+
+                {/* Feedback Modal */}
+                <Modal show={showFeedbackModal} onHide={() => setShowFeedbackModal(false)}>
+                    <Modal.Header closeButton>
+                        <Modal.Title>Rate Your Experience</Modal.Title>
+                    </Modal.Header>
+                    <Modal.Body>
+                        <Form>
+                            <Form.Group className="mb-4">
+                                <Form.Label>How would you rate the handling of your grievance?</Form.Label>
+                                <div className="d-flex justify-content-center gap-2 mb-3">
+                                    {[1, 2, 3, 4, 5].map((rating) => (
+                                        <button
+                                            key={rating}
+                                            type="button"
+                                            className={`btn ${feedbackRating >= rating ? 'btn-warning' : 'btn-outline-warning'}`}
+                                            onClick={() => setFeedbackRating(rating)}
+                                        >
+                                            <Star size={24} fill={feedbackRating >= rating ? 'currentColor' : 'none'} />
+                                        </button>
+                                    ))}
+                                </div>
+                            </Form.Group>
+                            <Form.Group className="mb-3">
+                                <Form.Label>Additional Comments (Optional)</Form.Label>
+                                <Form.Control
+                                    as="textarea"
+                                    rows={3}
+                                    value={feedbackComment}
+                                    onChange={(e) => setFeedbackComment(e.target.value)}
+                                    placeholder="Share your experience with how your grievance was handled..."
+                                />
+                            </Form.Group>
+                        </Form>
+                    </Modal.Body>
+                    <Modal.Footer>
+                        <Button variant="secondary" onClick={() => setShowFeedbackModal(false)}>
+                            Cancel
+                        </Button>
+                        <Button variant="primary" onClick={submitFeedback}>
+                            Submit Feedback
                         </Button>
                     </Modal.Footer>
                 </Modal>

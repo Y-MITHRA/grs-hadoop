@@ -25,14 +25,7 @@ const TimelineView = ({ grievanceId, onBack }) => {
             }
 
             const data = await response.json();
-            setTimelineStages([
-                {
-                    stageName: 'Grievance Filed',
-                    date: data.timelineStages[0]?.date || new Date().toISOString(),
-                    description: 'Grievance submitted to the system'
-                },
-                ...data.timelineStages
-            ]);
+            setTimelineStages(data.timelineStages);
         } catch (error) {
             console.error('Error fetching timeline stages:', error);
             setError('Failed to load timeline stages');

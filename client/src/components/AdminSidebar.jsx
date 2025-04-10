@@ -20,11 +20,14 @@ const AdminSidebar = ({ activeTab, onTabChange }) => {
     };
 
     const handleTabClick = (tab) => {
-        onTabChange(tab);
+        console.log('Tab clicked:', tab);
+        if (onTabChange) {
+            onTabChange(tab);
+        }
     };
 
     return (
-        <div className={`bg-black p-2 shadow-sm ${sidebarOpen ? "w-15" : "w-auto"} vh-100`} style={{ minWidth: sidebarOpen ? '200px' : '50px' }}>
+        <div className={`bg-dark p-2 shadow-sm ${sidebarOpen ? "w-15" : "w-auto"} vh-100`} style={{ minWidth: sidebarOpen ? '200px' : '50px' }}>
             <div className="d-flex justify-content-between align-items-center mb-3">
                 <h6
                     className={sidebarOpen ? "d-block mb-0" : "d-none"}
@@ -35,29 +38,31 @@ const AdminSidebar = ({ activeTab, onTabChange }) => {
                 </Button>
             </div>
 
-            <ul className="nav flex-column gap-1">
+            <ul className="nav flex-column gap-2">
                 <li className="nav-item">
-                    <button
+                    <Button
                         onClick={() => handleTabClick('dashboard')}
-                        className={`nav-link d-flex align-items-center w-100 border-0 bg-transparent ${activeTab === 'dashboard' ? 'active text-white' : 'text-white-50'}`}
+                        className={`nav-link d-flex align-items-center w-100 ${activeTab === 'dashboard' ? 'bg-primary text-white' : 'text-white-50'}`}
+                        variant={activeTab === 'dashboard' ? 'primary' : 'link'}
                     >
                         <List size={18} className="me-2" />
                         {sidebarOpen && "Dashboard"}
-                    </button>
+                    </Button>
                 </li>
                 <li className="nav-item">
-                    <button
+                    <Button
                         onClick={() => handleTabClick('escalated')}
-                        className={`nav-link d-flex align-items-center w-100 border-0 bg-transparent ${activeTab === 'escalated' ? 'active text-white' : 'text-white-50'}`}
+                        className={`nav-link d-flex align-items-center w-100 ${activeTab === 'escalated' ? 'bg-primary text-white' : 'text-white-50'}`}
+                        variant={activeTab === 'escalated' ? 'primary' : 'link'}
                     >
                         <AlertTriangle size={18} className="me-2" />
                         {sidebarOpen && "Escalated Cases"}
-                    </button>
+                    </Button>
                 </li>
                 <li className="nav-item">
                     <Link
                         to="/admin/resource-management"
-                        className={`nav-link d-flex align-items-center ${isActive('/admin/resource-management') ? 'active text-white' : 'text-white-50'}`}
+                        className={`nav-link d-flex align-items-center ${isActive('/admin/resource-management') ? 'text-white' : 'text-white-50'}`}
                     >
                         <Database size={18} className="me-2" />
                         {sidebarOpen && "Resource Management"}
@@ -66,13 +71,13 @@ const AdminSidebar = ({ activeTab, onTabChange }) => {
                 <li className="nav-item">
                     <Link
                         to="/admin/settings"
-                        className={`nav-link d-flex align-items-center ${isActive('/admin/settings') ? 'active text-white' : 'text-white-50'}`}
+                        className={`nav-link d-flex align-items-center ${isActive('/admin/settings') ? 'text-white' : 'text-white-50'}`}
                     >
                         <Bell size={18} className="me-2" />
                         {sidebarOpen && "Settings"}
                     </Link>
                 </li>
-                <li className="nav-item">
+                <li className="nav-item mt-auto">
                     <Button
                         variant="link"
                         className="nav-link text-danger d-flex align-items-center p-0 ps-2"
