@@ -42,55 +42,21 @@ const NavBar = () => {
   };
 
   return (
-    <nav className="navbar navbar-expand-md navbar-dark bg-primary shadow sticky-top">
+    <nav className="navbar navbar-expand-lg navbar-dark bg-primary">
       <div className="container">
-        {/* Logo */}
-        <Link to="/" className="navbar-brand d-flex align-items-center text-white" style={{ textDecoration: 'none' }}>
-          <img
-            src={shield}
-            alt="Logo"
-            className="d-inline-block align-top me-2"
-            width="40"
-            height="40"
-            style={{ borderRadius: '4px' }}
-          />
-          <span className="fw-bold d-none d-md-inline">
-            Grievance Portal
-          </span>
-        </Link>
-
-        {/* Mobile Menu Button */}
-        <button
-          className="navbar-toggler border-0"
-          type="button"
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          aria-controls="navbarContent"
-          aria-expanded={isMenuOpen ? 'true' : 'false'}
-          aria-label="Toggle navigation"
-        >
-          {isMenuOpen ? <X size={24} className="text-white" /> : <Menu size={24} className="text-white" />}
-        </button>
-
-        {/* Navigation Links and Buttons */}
-        <div className={`collapse navbar-collapse ${isMenuOpen ? 'show' : ''}`} id="navbarContent">
-          <ul className="navbar-nav me-auto mb-2 mb-md-0">
-            {user && (
-              <li className="nav-item">
-                <Link className="nav-link active" aria-current="page" to={getDashboardPath()}>Dashboard</Link>
-              </li>
-            )}
-            <li className="nav-item">
-              <Link className="nav-link" to="/about">About</Link>
-            </li>
-            <li className="nav-item">
-              <Link className="nav-link" to="/contact">Contact</Link>
-            </li>
-          </ul>
+        <div className="d-flex justify-content-between align-items-center w-100">
+          <div className="d-flex align-items-center">
+            {/* Logo and Brand */}
+            <Link to="/" className="navbar-brand d-flex align-items-center">
+              <img src={shield} alt="Logo" className="me-2" style={{ height: '30px' }} />
+              <span>Grievance Portal</span>
+            </Link>
+          </div>
 
           <div className="d-flex align-items-center gap-3">
-            {/* Notification Bell - Only show for logged-in users */}
+            {/* Notification Bell for logged-in users */}
             {user && (
-              <div className="position-relative cursor-pointer">
+              <div className="position-relative">
                 <NotificationBell
                   userId={user.id}
                   userRole={user.role}

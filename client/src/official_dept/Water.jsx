@@ -578,12 +578,14 @@ const WaterDashboard = () => {
             >
               <FaEye className="mr-2" /> View Details
             </button>
-            <button
-              onClick={() => handleViewChat(grievance)}
-              className="btn btn-secondary"
-            >
-              <FaComments className="mr-2" /> Chat
-            </button>
+            {(activeTab === 'assigned' || activeTab === 'inProgress') && !grievance.isResolved && (
+              <button
+                onClick={() => handleViewChat(grievance)}
+                className="btn btn-secondary"
+              >
+                <FaComments className="mr-2" /> Chat
+              </button>
+            )}
           </div>
         </div>
         <p className="text-gray-700 mb-4 line-clamp-2">{grievance.description}</p>

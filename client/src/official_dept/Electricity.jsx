@@ -542,7 +542,7 @@ const ElectricityDashboard = () => {
             >
               <FaEye className="mr-2" /> View Details
             </button>
-            {(activeTab === 'assigned' || activeTab === 'inProgress') && (
+            {(activeTab === 'assigned' || activeTab === 'inProgress') && !grievance.isResolved && (
               <button
                 onClick={() => handleViewChat(grievance)}
                 className="btn btn-secondary"
@@ -745,7 +745,7 @@ const ElectricityDashboard = () => {
                           <FaEye className="me-1" />
                           View Details
                         </button>
-                        {(activeTab === 'assigned' || activeTab === 'inProgress') && (
+                        {(activeTab === 'assigned' || activeTab === 'inProgress') && !grievance.isResolved && (
                           <button
                             className="btn btn-outline-primary btn-sm"
                             onClick={() => {

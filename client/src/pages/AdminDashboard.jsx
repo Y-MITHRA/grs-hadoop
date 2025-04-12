@@ -113,35 +113,10 @@ const AdminDashboard = () => {
             }
 
             const data = await response.json();
-
-            // Process grievances to ensure correct priority
-            const processedGrievances = data.grievances.map(grievance => {
-                // Check title for high priority keywords
-                const title = grievance.title?.toLowerCase() || '';
-                const description = grievance.description?.toLowerCase() || '';
-
-                const highPriorityKeywords = [
-                    'urgent', 'emergency', 'immediate', 'critical', 'severe', 'dangerous',
-                    'contaminated', 'health hazard', 'unsafe water', 'sewage overflow',
-                    'water pollution', 'toxic', 'no water supply', 'drinking water',
-                    'water quality', 'pipe burst', 'flooding', 'waterborne disease'
-                ];
-
-                const hasHighPriority = highPriorityKeywords.some(keyword =>
-                    title.includes(keyword) || description.includes(keyword)
-                );
-
-                return {
-                    ...grievance,
-                    priority: hasHighPriority ? 'High' : grievance.priority || 'Medium'
-                };
-            });
-
-            setEscalatedGrievances(processedGrievances);
+            setEscalatedGrievances(data.grievances);
         } catch (error) {
             console.error('Error fetching escalated grievances:', error);
-            setEscalatedError('Failed to load escalated grievances');
-            toast.error('Failed to load escalated grievances');
+            setEscalatedError(error.message);
         } finally {
             setEscalatedLoading(false);
         }
