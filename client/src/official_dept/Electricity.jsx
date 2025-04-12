@@ -7,6 +7,8 @@ import { FaSearch, FaUser, FaSignOutAlt, FaCheck, FaPlay, FaCheckCircle, FaClock
 import { toast } from 'react-hot-toast';
 import ChatComponent from '../components/ChatComponent';
 import "../styles/Chat.css";
+import NotificationBell from '../components/NotificationBell';
+import { Dropdown } from 'react-bootstrap';
 
 const ElectricityDashboard = () => {
   const navigate = useNavigate();
@@ -88,39 +90,42 @@ const ElectricityDashboard = () => {
   const analyzePriorityLocally = (grievance) => {
     const description = grievance.description?.toLowerCase() || '';
     const title = grievance.title?.toLowerCase() || '';
+    const combinedText = `${title} ${description}`;
 
     // Keywords indicating high priority for Electricity department
     const highPriorityKeywords = [
-      'urgent', 'emergency', 'immediate', 'critical', 'severe', 'dangerous',
-      'power outage', 'electrical hazard', 'fire', 'shock', 'live wire',
-      'transformer explosion', 'electrocution', 'short circuit'
+      'live wire', 'electrocution', 'fire', 'power outage', 'transformer explosion',
+      'electric shock', 'short circuit', 'sparking', 'fallen wire', 'emergency',
+      'hospital power', 'school power', 'dangerous', 'exposed wire', 'burning smell',
+      'smoke', 'power failure', 'blackout', 'electrical fire', 'public safety'
     ];
 
     // Keywords indicating medium priority
     const mediumPriorityKeywords = [
-      'important', 'moderate', 'repair', 'fix', 'maintenance',
-      'voltage fluctuation', 'irregular supply', 'meter issue',
-      'connection problem', 'billing error'
+      'voltage fluctuation', 'power surge', 'frequent outages', 'meter issue',
+      'connection problem', 'billing error', 'transformer noise', 'maintenance',
+      'street light', 'power quality', 'electrical connection', 'meter reading',
+      'power supply', 'electrical repair', 'installation'
     ];
 
-    // Check for high priority keywords
-    const hasHighPriority = highPriorityKeywords.some(keyword =>
-      description.includes(keyword) || title.includes(keyword)
-    );
+    // Count matches for better accuracy
+    const highPriorityMatches = highPriorityKeywords.filter(keyword =>
+      combinedText.includes(keyword)
+    ).length;
 
-    // Check for medium priority keywords
-    const hasMediumPriority = mediumPriorityKeywords.some(keyword =>
-      description.includes(keyword) || title.includes(keyword)
-    );
+    const mediumPriorityMatches = mediumPriorityKeywords.filter(keyword =>
+      combinedText.includes(keyword)
+    ).length;
 
-    if (hasHighPriority) {
+    // Determine priority based on keyword matches
+    if (highPriorityMatches > 0) {
       return {
         priority: 'High',
-        explanation: 'This grievance requires immediate attention due to potential electrical hazards or safety concerns.',
-        impactAssessment: 'High impact on public safety and essential electrical services. Immediate action required.',
-        recommendedResponseTime: '24-48 hours'
+        explanation: 'This grievance requires immediate attention due to electrical hazards or critical service disruption.',
+        impactAssessment: 'High impact on public safety and electrical infrastructure. Immediate action required.',
+        recommendedResponseTime: '24 hours'
       };
-    } else if (hasMediumPriority) {
+    } else if (mediumPriorityMatches > 0) {
       return {
         priority: 'Medium',
         explanation: 'This grievance needs attention but is not critical.',
@@ -537,12 +542,14 @@ const ElectricityDashboard = () => {
             >
               <FaEye className="mr-2" /> View Details
             </button>
-            <button
-              onClick={() => handleViewChat(grievance)}
-              className="btn btn-secondary"
-            >
-              <FaComments className="mr-2" /> Chat
-            </button>
+            {(activeTab === 'assigned' || activeTab === 'inProgress') && (
+              <button
+                onClick={() => handleViewChat(grievance)}
+                className="btn btn-secondary"
+              >
+                <FaComments className="mr-2" /> Chat
+              </button>
+            )}
           </div>
         </div>
         <p className="text-gray-700 mb-4 line-clamp-2">{grievance.description}</p>
@@ -602,119 +609,195 @@ const ElectricityDashboard = () => {
   };
 
   return (
-    <div>
-      <NavBar_Departments />
-      <div className="dashboard-container">
-        <header className="dashboard-header">
-          <div className="logo-section">
-            <h2>Electricity Department</h2>
-          </div>
-          <div className="user-section">
-            <span>{employeeId} - {email}</span>
-          </div>
-        </header>
-
-        <div className="content-area">
-          <aside className="sidebar">
-            <div className="menu-item active">
-              <span className="icon">📋</span>
-              <span>Grievances</span>
+    <div className="dashboard-container">
+      {/* Header */}
+      <div className="department-header bg-primary text-white p-3 d-flex justify-content-between align-items-center">
+        <div className="d-flex align-items-center">
+          <h2 className="mb-0">Electricity Department</h2>
+        </div>
+        <div className="d-flex align-items-center gap-3">
+          {/* Notification Bell */}
+          {user && (
+            <div className="position-relative">
+              <NotificationBell
+                userId={user.id}
+                userRole={user.role}
+              />
             </div>
-            <div className="menu-item">
-              <span className="icon">📊</span>
-              <span>Reports</span>
-            </div>
-            <div className="menu-item">
-              <span className="icon">⚙️</span>
-              <span>Settings</span>
-            </div>
-            <div className="menu-item" onClick={logout}>
-              <span className="icon">🚪</span>
-              <span>Logout</span>
-            </div>
-          </aside>
+          )}
 
-          <main className="main-content">
-            <div className="page-header">
-              <h1>Grievances</h1>
-              <div className="stats-bar">
-                <div className="stat-item">
-                  <span>Pending:</span>
-                  <span className="stat-number">{stats.pending}</span>
-                </div>
-                <div className="stat-item">
-                  <span>Assigned:</span>
-                  <span className="stat-number">{stats.assigned}</span>
-                </div>
-                <div className="stat-item">
-                  <span>In Progress:</span>
-                  <span className="stat-number">{stats.inProgress}</span>
-                </div>
-                <div className="stat-item">
-                  <span>Resolved:</span>
-                  <span className="stat-number">{stats.resolved}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="tab-container">
-              <div className="tabs">
-                <button
-                  className={`tab ${activeTab === "pending" ? "active" : ""}`}
-                  onClick={() => setActiveTab("pending")}
-                >
-                  Pending
-                </button>
-                <button
-                  className={`tab ${activeTab === "assigned" ? "active" : ""}`}
-                  onClick={() => setActiveTab("assigned")}
-                >
-                  Assigned
-                </button>
-                <button
-                  className={`tab ${activeTab === "inProgress" ? "active" : ""}`}
-                  onClick={() => setActiveTab("inProgress")}
-                >
-                  In Progress
-                </button>
-                <button
-                  className={`tab ${activeTab === "resolved" ? "active" : ""}`}
-                  onClick={() => setActiveTab("resolved")}
-                >
-                  Resolved
-                </button>
-              </div>
-
-              <div className="search-container">
-                <div className="search-box">
-                  <FaSearch className="search-icon" />
-                  <input
-                    type="text"
-                    placeholder="Search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="search-input"
-                  />
-                </div>
-              </div>
-
-              <div className="grievances-list">
-                {loading ? (
-                  <div className="loading">Loading...</div>
-                ) : error ? (
-                  <div className="error">{error}</div>
-                ) : filteredGrievances.length === 0 ? (
-                  <div className="no-grievances">No grievances found</div>
-                ) : (
-                  filteredGrievances.map((grievance) => renderGrievanceCard(grievance))
-                )}
-              </div>
-            </div>
-          </main>
-
-          {showDetails && renderDetailsModal()}
+          {/* User Profile */}
+          <Dropdown>
+            <Dropdown.Toggle variant="light" className="d-flex align-items-center">
+              <FaUser className="me-2" />
+              {email}
+              <span className="badge bg-secondary ms-2">Electricity</span>
+            </Dropdown.Toggle>
+            <Dropdown.Menu>
+              <Dropdown.Item onClick={() => navigate('/settings')}>
+                <FaTools className="me-2" />
+                Settings
+              </Dropdown.Item>
+              <Dropdown.Divider />
+              <Dropdown.Item onClick={() => {
+                logout();
+                navigate('/login');
+              }} className="text-danger">
+                <FaSignOutAlt className="me-2" />
+                Logout
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown>
         </div>
       </div>
+
+      {/* Main Content */}
+      <div className="dashboard-content p-4">
+        {/* Stats Section */}
+        <div className="stats-container mb-4">
+          <div className="row">
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("pending")}>
+                <div className={`card ${activeTab === "pending" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">Pending</h5>
+                    <h2 className="card-text">{stats.pending}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("assigned")}>
+                <div className={`card ${activeTab === "assigned" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">Assigned</h5>
+                    <h2 className="card-text">{stats.assigned}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("inProgress")}>
+                <div className={`card ${activeTab === "inProgress" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">In Progress</h5>
+                    <h2 className="card-text">{stats.inProgress}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("resolved")}>
+                <div className={`card ${activeTab === "resolved" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">Resolved</h5>
+                    <h2 className="card-text">{stats.resolved}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="search-container mb-4">
+          <div className="input-group">
+            <span className="input-group-text">
+              <FaSearch />
+            </span>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search grievances..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Grievances List */}
+        <div className="grievances-list">
+          {loading ? (
+            <div className="text-center p-4">
+              <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Loading...</span>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="alert alert-danger">{error}</div>
+          ) : grievances[activeTab].length === 0 ? (
+            <div className="text-center p-4">
+              <p className="text-muted">No grievances found</p>
+            </div>
+          ) : (
+            <div className="row">
+              {grievances[activeTab].map(grievance => (
+                <div key={grievance._id} className="col-md-6 mb-3">
+                  <div className="card">
+                    <div className="card-body">
+                      <h5 className="card-title">{grievance.title}</h5>
+                      <p className="card-text">{grievance.description}</p>
+                      <div className="d-flex justify-content-between align-items-center">
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => setSelectedGrievance(grievance)}
+                        >
+                          <FaEye className="me-1" />
+                          View Details
+                        </button>
+                        {(activeTab === 'assigned' || activeTab === 'inProgress') && (
+                          <button
+                            className="btn btn-outline-primary btn-sm"
+                            onClick={() => {
+                              setSelectedGrievance(grievance);
+                              setShowChat(true);
+                            }}
+                          >
+                            <FaComments className="me-1" />
+                            Chat
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chat Modal */}
+      {showChat && selectedGrievance && (
+        <div className="modal fade show" style={{ display: 'block' }} tabIndex="-1">
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  Chat - Grievance {selectedGrievance._id}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => {
+                    setShowChat(false);
+                    setSelectedGrievance(null);
+                  }}
+                ></button>
+              </div>
+              <div className="modal-body" style={{ height: '500px', padding: 0 }}>
+                <ChatComponent
+                  grievanceId={selectedGrievance._id}
+                  petitionerId={selectedGrievance.petitioner}
+                  officialId={employeeId}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDetails && renderDetailsModal()}
 
       {showDeclineModal && (
         <div className="modal">
@@ -887,35 +970,6 @@ const ElectricityDashboard = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {showChat && selectedGrievance && (
-        <div className="modal fade show" style={{ display: 'block' }} tabIndex="-1">
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  Chat - Grievance {selectedGrievance.grievanceId}
-                </h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => {
-                    setShowChat(false);
-                    setSelectedGrievance(null);
-                  }}
-                ></button>
-              </div>
-              <div className="modal-body" style={{ height: '500px', padding: 0 }}>
-                <ChatComponent
-                  grievanceId={selectedGrievance._id}
-                  petitionerId={selectedGrievance.petitioner?._id || selectedGrievance.petitioner}
-                  officialId={user.id}
-                />
-              </div>
-            </div>
           </div>
         </div>
       )}

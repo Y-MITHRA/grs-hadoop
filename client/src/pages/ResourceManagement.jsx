@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import NavBar from '../components/NavBar';
 import AdminSidebar from '../components/AdminSidebar';
 import Footer from '../shared/Footer';
@@ -7,6 +8,7 @@ import { toast } from 'react-hot-toast';
 import { Eye } from 'lucide-react';
 
 const ResourceManagement = () => {
+    const navigate = useNavigate();
     const [resourceData, setResourceData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -21,8 +23,14 @@ const ResourceManagement = () => {
     });
 
     useEffect(() => {
+        // Check authentication
+        const token = localStorage.getItem('token');
+        if (!token) {
+            navigate('/login');
+            return;
+        }
         fetchResourceData();
-    }, []);
+    }, [navigate]);
 
     const fetchResourceData = async () => {
         try {
@@ -65,13 +73,14 @@ const ResourceManagement = () => {
 
     const handleViewDetails = async (resource) => {
         try {
+            setLoading(true);
             const token = localStorage.getItem('token');
             if (!token) {
                 throw new Error('No authentication token found');
             }
 
-            // Fetch from the respective department's API
-            const response = await fetch(`http://localhost:5000/api/grievances/department/${resource.department}/${resource.grievanceId}`, {
+            // Fetch detailed grievance information
+            const response = await fetch(`http://localhost:5000/api/grievances/department/${resource.department}/details/${resource.grievanceId}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -82,11 +91,24 @@ const ResourceManagement = () => {
             }
 
             const data = await response.json();
-            setSelectedResource(data.grievance);
+            setSelectedResource({
+                ...data.grievance,
+                resourceDetails: {
+                    startDate: resource.startDate,
+                    endDate: resource.endDate,
+                    requirementsNeeded: resource.requirementsNeeded,
+                    fundsRequired: resource.fundsRequired,
+                    resourcesRequired: resource.resourcesRequired,
+                    manpowerNeeded: resource.manpowerNeeded,
+                    status: resource.status
+                }
+            });
             setShowDetails(true);
         } catch (error) {
             console.error('Error fetching grievance details:', error);
             toast.error('Failed to load grievance details');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -102,7 +124,7 @@ const ResourceManagement = () => {
 
     return (
         <div className="d-flex">
-            <AdminSidebar />
+            <AdminSidebar activeTab="resource" />
             <div className="flex-grow-1">
                 <NavBar />
                 <Container fluid className="py-3">
@@ -184,12 +206,10 @@ const ResourceManagement = () => {
                             <thead>
                                 <tr>
                                     <th>ID</th>
-                                    <th>Title</th>
                                     <th>Department</th>
                                     <th>Status</th>
-                                    <th>Priority</th>
                                     <th>Timeline</th>
-                                    <th>Progress</th>
+                                    <th>Requirements</th>
                                     <th>Funds Required</th>
                                     <th>Resources</th>
                                     <th>Manpower</th>
@@ -200,31 +220,22 @@ const ResourceManagement = () => {
                                 {filteredData.map((resource) => (
                                     <tr key={resource._id}>
                                         <td>{resource.grievanceId}</td>
-                                        <td>{resource.title}</td>
                                         <td>
                                             <Badge bg="primary">{resource.department}</Badge>
                                         </td>
                                         <td>
-                                            <Badge bg={resource.status === 'completed' ? 'success' : 'warning'}>
+                                            <Badge bg={resource.status === 'Completed' ? 'success' : 'warning'}>
                                                 {resource.status}
-                                            </Badge>
-                                        </td>
-                                        <td>
-                                            <Badge bg={
-                                                resource.priority === 'high' ? 'danger' :
-                                                    resource.priority === 'medium' ? 'warning' : 'info'
-                                            }>
-                                                {resource.priority}
                                             </Badge>
                                         </td>
                                         <td>
                                             {new Date(resource.startDate).toLocaleDateString()} -
                                             {new Date(resource.endDate).toLocaleDateString()}
                                         </td>
-                                        <td>{resource.progress || '0%'}</td>
+                                        <td>{resource.requirementsNeeded}</td>
                                         <td>₹{resource.fundsRequired?.toLocaleString()}</td>
                                         <td>{resource.resourcesRequired}</td>
-                                        <td>{resource.manpowerNeeded} Official</td>
+                                        <td>{resource.manpowerNeeded}</td>
                                         <td>
                                             <Button
                                                 variant="link"
@@ -241,23 +252,46 @@ const ResourceManagement = () => {
                         </Table>
                     )}
 
-                    {/* Details Modal */}
-                    <Modal show={showDetails} onHide={() => setShowDetails(false)}>
+                    {/* Updated Details Modal */}
+                    <Modal show={showDetails} onHide={() => setShowDetails(false)} size="lg">
                         <Modal.Header closeButton>
                             <Modal.Title>Grievance Details</Modal.Title>
                         </Modal.Header>
                         <Modal.Body>
                             {selectedResource && (
                                 <div className="grievance-details">
-                                    <p><strong>ID:</strong> {selectedResource._id}</p>
-                                    <p><strong>Title:</strong> {selectedResource.title}</p>
-                                    <p><strong>Description:</strong> {selectedResource.description}</p>
-                                    <p><strong>Status:</strong> {selectedResource.status}</p>
-                                    <p><strong>Priority:</strong> {selectedResource.priority}</p>
-                                    <p><strong>Created At:</strong> {new Date(selectedResource.createdAt).toLocaleString()}</p>
-                                    <p><strong>Location:</strong> {selectedResource.location}</p>
+                                    <div className="row">
+                                        <div className="col-md-6">
+                                            <h5 className="mb-3">Basic Information</h5>
+                                            <p><strong>Grievance ID:</strong> {selectedResource.grievanceId}</p>
+                                            <p><strong>Title:</strong> {selectedResource.title}</p>
+                                            <p><strong>Department:</strong> {selectedResource.department}</p>
+                                            <p><strong>Status:</strong>
+                                                <Badge bg={selectedResource.resourceDetails?.status === 'Completed' ? 'success' : 'warning'} className="ms-2">
+                                                    {selectedResource.resourceDetails?.status}
+                                                </Badge>
+                                            </p>
+                                            <p><strong>Description:</strong> {selectedResource.description}</p>
+                                            <p><strong>Location:</strong> {selectedResource.location}</p>
+                                        </div>
+                                        <div className="col-md-6">
+                                            <h5 className="mb-3">Resource Details</h5>
+                                            <p><strong>Timeline:</strong> {' '}
+                                                {new Date(selectedResource.resourceDetails?.startDate).toLocaleDateString()} - {' '}
+                                                {new Date(selectedResource.resourceDetails?.endDate).toLocaleDateString()}
+                                            </p>
+                                            <p><strong>Requirements:</strong> {selectedResource.resourceDetails?.requirementsNeeded}</p>
+                                            <p><strong>Funds Required:</strong> ₹{selectedResource.resourceDetails?.fundsRequired?.toLocaleString()}</p>
+                                            <p><strong>Resources Required:</strong> {selectedResource.resourceDetails?.resourcesRequired}</p>
+                                            <p><strong>Manpower Needed:</strong> {selectedResource.resourceDetails?.manpowerNeeded}</p>
+                                        </div>
+                                    </div>
                                     {selectedResource.assignedTo && (
-                                        <p><strong>Assigned To:</strong> {selectedResource.assignedTo.firstName} {selectedResource.assignedTo.lastName}</p>
+                                        <div className="mt-3">
+                                            <h5 className="mb-3">Assignment Details</h5>
+                                            <p><strong>Assigned To:</strong> {selectedResource.assignedTo.firstName} {selectedResource.assignedTo.lastName}</p>
+                                            <p><strong>Contact:</strong> {selectedResource.assignedTo.email}</p>
+                                        </div>
                                     )}
                                 </div>
                             )}

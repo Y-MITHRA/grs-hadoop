@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import Footer from "../shared/Footer";
 import NavBar from "../components/NavBar";
 import AdminSidebar from '../components/AdminSidebar';
@@ -10,16 +11,22 @@ import { API_URL } from '../config';
 import toast from 'react-hot-toast';
 
 const AdminDashboard = () => {
+    const location = useLocation();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [resourceData, setResourceData] = useState([]);
     const [resourceLoading, setResourceLoading] = useState(true);
     const [resourceError, setResourceError] = useState(null);
-    const [activeTab, setActiveTab] = useState('dashboard');
+    const [activeTab, setActiveTab] = useState(() => {
+        // Set initial activeTab based on current path
+        if (location.pathname === '/admin/escalated') return 'escalated';
+        if (location.pathname === '/admin/resource-management') return 'resource';
+        if (location.pathname === '/admin/settings') return 'settings';
+        return 'dashboard';
+    });
     const [escalatedGrievances, setEscalatedGrievances] = useState([]);
     const [showResponseModal, setShowResponseModal] = useState(false);
     const [selectedGrievance, setSelectedGrievance] = useState(null);
     const [escalationResponse, setEscalationResponse] = useState('');
-    const [newStatus, setNewStatus] = useState('');
     const [newAssignedTo, setNewAssignedTo] = useState('');
     const [officials, setOfficials] = useState([]);
     const [escalatedLoading, setEscalatedLoading] = useState(false);
@@ -34,6 +41,14 @@ const AdminDashboard = () => {
         resolvedCases: { value: 0, trend: '0%' },
         departments: { value: 0, trend: 'Stable' }
     });
+
+    useEffect(() => {
+        // Update activeTab when route changes
+        if (location.pathname === '/admin/escalated') setActiveTab('escalated');
+        else if (location.pathname === '/admin/resource-management') setActiveTab('resource');
+        else if (location.pathname === '/admin/settings') setActiveTab('settings');
+        else if (location.pathname === '/admin/dashboard') setActiveTab('dashboard');
+    }, [location.pathname]);
 
     useEffect(() => {
         console.log('Active tab changed to:', activeTab);
@@ -98,7 +113,31 @@ const AdminDashboard = () => {
             }
 
             const data = await response.json();
-            setEscalatedGrievances(data.grievances);
+
+            // Process grievances to ensure correct priority
+            const processedGrievances = data.grievances.map(grievance => {
+                // Check title for high priority keywords
+                const title = grievance.title?.toLowerCase() || '';
+                const description = grievance.description?.toLowerCase() || '';
+
+                const highPriorityKeywords = [
+                    'urgent', 'emergency', 'immediate', 'critical', 'severe', 'dangerous',
+                    'contaminated', 'health hazard', 'unsafe water', 'sewage overflow',
+                    'water pollution', 'toxic', 'no water supply', 'drinking water',
+                    'water quality', 'pipe burst', 'flooding', 'waterborne disease'
+                ];
+
+                const hasHighPriority = highPriorityKeywords.some(keyword =>
+                    title.includes(keyword) || description.includes(keyword)
+                );
+
+                return {
+                    ...grievance,
+                    priority: hasHighPriority ? 'High' : grievance.priority || 'Medium'
+                };
+            });
+
+            setEscalatedGrievances(processedGrievances);
         } catch (error) {
             console.error('Error fetching escalated grievances:', error);
             setEscalatedError('Failed to load escalated grievances');
@@ -108,14 +147,14 @@ const AdminDashboard = () => {
         }
     };
 
-    const fetchOfficials = async () => {
+    const fetchOfficials = async (department) => {
         try {
             const token = localStorage.getItem('token');
             if (!token) {
                 throw new Error('No authentication token found');
             }
 
-            const response = await fetch(`${API_URL}/admin/officials`, {
+            const response = await fetch(`${API_URL}/admin/officials?department=${department}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -126,11 +165,19 @@ const AdminDashboard = () => {
             }
 
             const data = await response.json();
-            setOfficials(data.officials);
+            // Filter officials by department
+            setOfficials(data.officials.filter(official => official.department === department));
         } catch (error) {
             console.error('Error fetching officials:', error);
             toast.error('Failed to load officials');
         }
+    };
+
+    const handleOpenResponseModal = (grievance) => {
+        setSelectedGrievance(grievance);
+        // Fetch officials specific to the grievance department
+        fetchOfficials(grievance.department);
+        setShowResponseModal(true);
     };
 
     const fetchDashboardStats = async () => {
@@ -207,37 +254,77 @@ const AdminDashboard = () => {
 
     const handleRespondToEscalation = async () => {
         try {
-            if (!escalationResponse.trim()) {
-                toast.error('Please provide a response');
+            // Validate response
+            if (!escalationResponse?.trim()) {
+                toast.error('Please provide a response to the escalation');
+                return;
+            }
+
+            if (!selectedGrievance?._id) {
+                toast.error('Invalid grievance selected');
                 return;
             }
 
             const token = localStorage.getItem('token');
             if (!token) {
-                throw new Error('No authentication token found');
+                toast.error('Authentication token not found');
+                return;
+            }
+
+            // Default status is 'assigned' when responding to escalation
+            const status = 'assigned';
+            const isReassignment = Boolean(newAssignedTo);
+            let assignedOfficialDetails = null;
+
+            // Get details of the newly assigned official if reassignment
+            if (isReassignment) {
+                const official = officials.find(off => off._id === newAssignedTo);
+                if (!official) {
+                    toast.error('Selected official not found');
+                    return;
+                }
+                assignedOfficialDetails = {
+                    firstName: official.firstName,
+                    lastName: official.lastName
+                };
             }
 
             const response = await fetch(`${API_URL}/grievances/${selectedGrievance._id}/escalation-response`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    escalationResponse,
-                    newStatus,
-                    newAssignedTo
+                    escalationResponse: escalationResponse.trim(),
+                    newStatus: status,
+                    newAssignedTo: newAssignedTo || null,
+                    isReassignment,
+                    notification: isReassignment ? {
+                        title: 'Grievance Reassigned',
+                        message: `A grievance has been reassigned to you by admin: ${selectedGrievance.title}`,
+                        type: 'reassignment',
+                        grievanceId: selectedGrievance._id,
+                        recipientId: newAssignedTo
+                    } : null
                 })
             });
 
+            const data = await response.json();
+
             if (!response.ok) {
-                throw new Error('Failed to submit escalation response');
+                throw new Error(data.error || data.details || 'Failed to submit escalation response');
             }
 
-            toast.success('Response submitted successfully');
+            // Show success message with reassignment details if applicable
+            if (isReassignment && assignedOfficialDetails) {
+                toast.success(`Grievance reassigned to ${assignedOfficialDetails.firstName} ${assignedOfficialDetails.lastName}`);
+            } else {
+                toast.success('Response submitted successfully');
+            }
+
             setShowResponseModal(false);
             setEscalationResponse('');
-            setNewStatus('');
             setNewAssignedTo('');
             setSelectedGrievance(null);
             fetchEscalatedGrievances();
@@ -529,7 +616,7 @@ const AdminDashboard = () => {
                                                 </td>
                                                 <td>
                                                     <span className={`badge bg-${getPriorityBadgeClass(grievance.priority)}`}>
-                                                        {grievance.priority || 'Not Set'}
+                                                        {grievance.priority ? grievance.priority.charAt(0).toUpperCase() + grievance.priority.slice(1).toLowerCase() : 'Not Set'}
                                                     </span>
                                                 </td>
                                                 <td>
@@ -553,14 +640,12 @@ const AdminDashboard = () => {
                                                 </td>
                                                 <td>
                                                     <Button
-                                                        variant="primary"
+                                                        variant={grievance.escalationResponse ? "success" : "primary"}
                                                         size="sm"
-                                                        onClick={() => {
-                                                            setSelectedGrievance(grievance);
-                                                            setShowResponseModal(true);
-                                                        }}
+                                                        onClick={() => handleOpenResponseModal(grievance)}
+                                                        disabled={grievance.escalationResponse}
                                                     >
-                                                        Respond
+                                                        {grievance.escalationResponse ? "Responded" : "Respond"}
                                                     </Button>
                                                 </td>
                                             </tr>
@@ -586,62 +671,87 @@ const AdminDashboard = () => {
                 </Container>
             </div>
 
-            {/* Escalation Response Modal */}
-            <Modal show={showResponseModal} onHide={() => setShowResponseModal(false)} size="lg">
+            {/* Response Modal */}
+            <Modal
+                show={showResponseModal}
+                onHide={() => setShowResponseModal(false)}
+                style={{ zIndex: 9999 }}
+                dialogClassName="modal-90w"
+            >
                 <Modal.Header closeButton>
                     <Modal.Title>Respond to Escalation</Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
                     {selectedGrievance && (
-                        <>
-                            <div className="mb-3">
-                                <h6>Grievance Details</h6>
-                                <p><strong>ID:</strong> {selectedGrievance.petitionId}</p>
-                                <p><strong>Title:</strong> {selectedGrievance.title}</p>
-                                <p><strong>Department:</strong> {selectedGrievance.department}</p>
-                                <p><strong>Current Status:</strong> {selectedGrievance.status}</p>
-                                <p><strong>Escalation Reason:</strong> {selectedGrievance.escalationReason}</p>
+                        <Form>
+                            {/* Grievance Details Section */}
+                            <div className="grievance-details mb-4 p-3 bg-light rounded">
+                                <h6 className="border-bottom pb-2 mb-3">Grievance Details</h6>
+                                <div className="mb-2">
+                                    <strong>Grievance ID:</strong> {selectedGrievance.petitionId || 'N/A'}
+                                </div>
+                                <div className="mb-2">
+                                    <strong>Title:</strong> {selectedGrievance.title}
+                                </div>
+                                <div className="mb-2">
+                                    <strong>Description:</strong>
+                                    <p className="text-muted mb-2">{selectedGrievance.description}</p>
+                                </div>
+                                <div className="mb-2">
+                                    <strong>Status:</strong>{' '}
+                                    <span className={`badge bg-${getStatusBadgeClass(selectedGrievance.status)}`}>
+                                        {selectedGrievance.status?.charAt(0).toUpperCase() + selectedGrievance.status?.slice(1)}
+                                    </span>
+                                </div>
+                                <div className="mb-2">
+                                    <strong>Priority:</strong>{' '}
+                                    <span className={`badge bg-${getPriorityBadgeClass(selectedGrievance.priority)}`}>
+                                        {selectedGrievance.priority}
+                                    </span>
+                                </div>
+                                <div className="mb-2">
+                                    <strong>Escalation Reason:</strong>
+                                    <p className="text-muted mb-0">{selectedGrievance.escalationReason}</p>
+                                </div>
                             </div>
-                            <Form>
-                                <Form.Group className="mb-3">
-                                    <Form.Label>Response</Form.Label>
-                                    <Form.Control
-                                        as="textarea"
-                                        rows={3}
-                                        value={escalationResponse}
-                                        onChange={(e) => setEscalationResponse(e.target.value)}
-                                        placeholder="Enter your response to the escalation"
-                                    />
-                                </Form.Group>
-                                <Form.Group className="mb-3">
-                                    <Form.Label>New Status</Form.Label>
-                                    <Form.Select
-                                        value={newStatus}
-                                        onChange={(e) => setNewStatus(e.target.value)}
-                                    >
-                                        <option value="">Keep Current Status</option>
-                                        <option value="pending">Pending</option>
-                                        <option value="assigned">Assigned</option>
-                                        <option value="in-progress">In Progress</option>
-                                        <option value="resolved">Resolved</option>
-                                    </Form.Select>
-                                </Form.Group>
-                                <Form.Group className="mb-3">
-                                    <Form.Label>Reassign To</Form.Label>
-                                    <Form.Select
-                                        value={newAssignedTo}
-                                        onChange={(e) => setNewAssignedTo(e.target.value)}
-                                    >
-                                        <option value="">Keep Current Official</option>
-                                        {officials.map((official) => (
-                                            <option key={official._id} value={official._id}>
-                                                {official.firstName} {official.lastName} - {official.department}
-                                            </option>
-                                        ))}
-                                    </Form.Select>
-                                </Form.Group>
-                            </Form>
-                        </>
+
+                            {/* Response Form Section */}
+                            <h6 className="border-bottom pb-2 mb-3">Response Details</h6>
+                            <Form.Group className="mb-3">
+                                <Form.Label>Department</Form.Label>
+                                <Form.Control
+                                    type="text"
+                                    value={selectedGrievance.department}
+                                    disabled
+                                />
+                            </Form.Group>
+                            <Form.Group className="mb-3">
+                                <Form.Label>Reassign to Official ({selectedGrievance.department} Department)</Form.Label>
+                                <Form.Select
+                                    value={newAssignedTo}
+                                    onChange={(e) => setNewAssignedTo(e.target.value)}
+                                    required
+                                >
+                                    <option value="">Select an official</option>
+                                    {officials.map((official) => (
+                                        <option key={official._id} value={official._id}>
+                                            {official.firstName} {official.lastName} - {official.email}
+                                        </option>
+                                    ))}
+                                </Form.Select>
+                            </Form.Group>
+                            <Form.Group className="mb-3">
+                                <Form.Label>Response</Form.Label>
+                                <Form.Control
+                                    as="textarea"
+                                    rows={4}
+                                    value={escalationResponse}
+                                    onChange={(e) => setEscalationResponse(e.target.value)}
+                                    placeholder="Enter your response to the escalation..."
+                                    required
+                                />
+                            </Form.Group>
+                        </Form>
                     )}
                 </Modal.Body>
                 <Modal.Footer>

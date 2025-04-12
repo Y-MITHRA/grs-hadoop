@@ -80,7 +80,7 @@ const timelineStageSchema = new mongoose.Schema({
     stageName: {
         type: String,
         required: true,
-        enum: ['Grievance Filed', 'Under Review', 'Investigation', 'Resolution']
+        enum: ['Grievance Filed', 'Under Review', 'Investigation', 'Resolution', 'Reassigned', 'Escalated']
     },
     date: {
         type: Date,

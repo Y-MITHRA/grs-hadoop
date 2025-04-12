@@ -7,6 +7,8 @@ import { FaSearch, FaUser, FaSignOutAlt, FaCheck, FaPlay, FaCheckCircle, FaClock
 import { toast } from 'react-hot-toast';
 import ChatComponent from '../components/ChatComponent';
 import "../styles/Chat.css";
+import NotificationBell from '../components/NotificationBell';
+import { Dropdown } from 'react-bootstrap';
 
 const WaterDashboard = () => {
   const navigate = useNavigate();
@@ -641,17 +643,111 @@ const WaterDashboard = () => {
   };
 
   return (
-    <div>
-      <NavBar_Departments />
-      <div className="dashboard-container">
-        <header className="dashboard-header">
-          <div className="logo-section">
-            <h2>Water Department</h2>
+    <div className="dashboard-container">
+      {/* Header */}
+      <div className="department-header bg-primary text-white p-3 d-flex justify-content-between align-items-center">
+        <div className="d-flex align-items-center">
+          <h2 className="mb-0">Water Department</h2>
+        </div>
+        <div className="d-flex align-items-center gap-3">
+          {/* Notification Bell */}
+          {user && (
+            <div className="position-relative">
+              <NotificationBell
+                userId={user.id}
+                userRole={user.role}
+              />
+            </div>
+          )}
+
+          {/* User Profile */}
+          <Dropdown>
+            <Dropdown.Toggle variant="light" className="d-flex align-items-center">
+              <FaUser className="me-2" />
+              {email}
+              <span className="badge bg-secondary ms-2">Water</span>
+            </Dropdown.Toggle>
+            <Dropdown.Menu>
+              <Dropdown.Item onClick={() => navigate('/settings')}>
+                <FaTools className="me-2" />
+                Settings
+              </Dropdown.Item>
+              <Dropdown.Divider />
+              <Dropdown.Item onClick={() => {
+                logout();
+                navigate('/login');
+              }} className="text-danger">
+                <FaSignOutAlt className="me-2" />
+                Logout
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="dashboard-content p-4">
+        {/* Stats Section */}
+        <div className="stats-container mb-4">
+          <div className="row">
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("pending")}>
+                <div className={`card ${activeTab === "pending" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">Pending</h5>
+                    <h2 className="card-text">{stats.pending}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("assigned")}>
+                <div className={`card ${activeTab === "assigned" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">Assigned</h5>
+                    <h2 className="card-text">{stats.assigned}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("inProgress")}>
+                <div className={`card ${activeTab === "inProgress" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">In Progress</h5>
+                    <h2 className="card-text">{stats.inProgress}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-3">
+              <div className="stat-card" onClick={() => setActiveTab("resolved")}>
+                <div className={`card ${activeTab === "resolved" ? 'border-primary' : ''}`}>
+                  <div className="card-body">
+                    <h5 className="card-title">Resolved</h5>
+                    <h2 className="card-text">{stats.resolved}</h2>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="user-section">
-            <span>{employeeId} - {email}</span>
+        </div>
+
+        {/* Search Bar */}
+        <div className="search-container mb-4">
+          <div className="input-group">
+            <span className="input-group-text">
+              <FaSearch />
+            </span>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Search grievances..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-        </header>
+        </div>
 
         <div className="content-area">
           <aside className="sidebar">
@@ -676,24 +772,6 @@ const WaterDashboard = () => {
           <main className="main-content">
             <div className="page-header">
               <h1>Grievances</h1>
-              <div className="stats-bar">
-                <div className="stat-item">
-                  <span>Pending:</span>
-                  <span className="stat-number">{stats.pending}</span>
-                </div>
-                <div className="stat-item">
-                  <span>Assigned:</span>
-                  <span className="stat-number">{stats.assigned}</span>
-                </div>
-                <div className="stat-item">
-                  <span>In Progress:</span>
-                  <span className="stat-number">{stats.inProgress}</span>
-                </div>
-                <div className="stat-item">
-                  <span>Resolved:</span>
-                  <span className="stat-number">{stats.resolved}</span>
-                </div>
-              </div>
             </div>
 
             <div className="tab-container">
@@ -722,19 +800,6 @@ const WaterDashboard = () => {
                 >
                   Resolved
                 </button>
-              </div>
-
-              <div className="search-container">
-                <div className="search-box">
-                  <FaSearch className="search-icon" />
-                  <input
-                    type="text"
-                    placeholder="Search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="search-input"
-                  />
-                </div>
               </div>
 
               <div className="grievances-list">

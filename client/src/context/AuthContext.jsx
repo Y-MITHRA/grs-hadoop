@@ -91,8 +91,10 @@ export const AuthProvider = ({ children }) => {
             try {
                 const decoded = decodeToken(token);
                 if (decoded && decoded.exp * 1000 > Date.now()) {
-                    // Token is valid, set user from localStorage
+                    // Token is valid, set user from localStorage with proper role casing
                     const parsedUser = JSON.parse(storedUser);
+                    // Ensure consistent role casing
+                    parsedUser.role = parsedUser.role.charAt(0).toUpperCase() + parsedUser.role.slice(1).toLowerCase();
                     setUser(parsedUser);
 
                     // Check if token is expiring soon
@@ -158,27 +160,32 @@ export const AuthProvider = ({ children }) => {
             // Store token in localStorage
             if (data.token) {
                 localStorage.setItem('token', data.token);
+                // Ensure user role is properly cased
+                const userData = {
+                    ...data.user,
+                    role: data.user.role.charAt(0).toUpperCase() + data.user.role.slice(1).toLowerCase()
+                };
                 // Store user data in localStorage
-                localStorage.setItem('user', JSON.stringify(data.user));
+                localStorage.setItem('user', JSON.stringify(userData));
                 // Store email and employeeId for department officials
-                if (data.user.role === 'official') {
+                if (userData.role === 'Official') {
                     localStorage.setItem('email', emailValue);
                     if (employeeId) {
                         localStorage.setItem('employeeId', employeeId);
                     }
                 }
                 // Set user in state
-                setUser(data.user);
+                setUser(userData);
             } else {
                 throw new Error('No token received from server');
             }
 
             // Navigate based on role
-            if (data.user.role === 'petitioner') {
+            if (data.user.role.toLowerCase() === 'petitioner') {
                 navigate('/petitioner/dashboard');
-            } else if (data.user.role === 'official') {
+            } else if (data.user.role.toLowerCase() === 'official') {
                 navigate(getRedirectPath('official', data.user.department));
-            } else if (data.user.role === 'admin') {
+            } else if (data.user.role.toLowerCase() === 'admin') {
                 navigate('/admin/dashboard');
             }
 
@@ -194,11 +201,11 @@ export const AuthProvider = ({ children }) => {
             // Clear all auth-related data from localStorage
             localStorage.removeItem('token');
             localStorage.removeItem('user');
-            
+
             // Reset state
             setUser(null);
             setTokenExpiryWarning(false);
-            
+
             // Navigate to login page
             navigate('/login');
         } catch (error) {

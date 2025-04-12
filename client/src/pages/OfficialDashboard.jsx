@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import Footer from "../shared/Footer";
 import NavBar from "../components/NavBar";
-import { MessageSquare, Phone, User, Bell, ChevronDown, LogOut } from "lucide-react";
+import { MessageSquare, Phone, User } from "lucide-react";
 import { Container, Row, Col, Card, Button, Dropdown } from "react-bootstrap";
 
 const CaseCard = ({ caseData, onDragStart }) => {
@@ -136,32 +136,10 @@ const OfficialDashboard = () => {
         <>
             <NavBar />
             <Container fluid className="p-4">
-                {/* Profile & Notification Section */}
-                <div className="d-flex justify-content-between align-items-center mb-4">
-                    <h2 className="mb-0">Official Dashboard</h2>
-
-                    <div className="d-flex align-items-center">
-                        <Button variant="light" className="me-3 position-relative">
-                            <Bell size={20} />
-                            <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">3</span>
-                        </Button>
-
-                        <Dropdown>
-                            <Dropdown.Toggle variant="light" className="d-flex align-items-center">
-                                <User size={20} className="me-2" />
-                                Official
-                                <ChevronDown size={16} className="ms-1" />
-                            </Dropdown.Toggle>
-                            <Dropdown.Menu>
-                                <Dropdown.Item href="#">Profile</Dropdown.Item>
-                                <Dropdown.Item href="#">Settings</Dropdown.Item>
-                                <Dropdown.Divider />
-                                <Dropdown.Item href="#" className="text-danger">
-                                    <LogOut size={16} className="me-2" /> Logout
-                                </Dropdown.Item>
-                            </Dropdown.Menu>
-                        </Dropdown>
-                    </div>
+                {/* Dashboard Header */}
+                <div className="mb-4">
+                    <h2>Official Dashboard</h2>
+                    <p className="text-muted">Manage and track grievance cases</p>
                 </div>
 
                 {/* Kanban Board */}

@@ -589,39 +589,42 @@ const PetitionerDashboard = () => {
                     grievanceId={selectedGrievanceForEscalation?._id}
                 />
 
-                {/* Feedback Modal */}
-                <Modal show={showFeedbackModal} onHide={() => setShowFeedbackModal(false)}>
+                {/* Rate Your Experience Modal */}
+                <Modal
+                    show={showFeedbackModal}
+                    onHide={() => setShowFeedbackModal(false)}
+                    style={{ zIndex: 9999 }}
+                    dialogClassName="modal-dialog-centered"
+                >
                     <Modal.Header closeButton>
                         <Modal.Title>Rate Your Experience</Modal.Title>
                     </Modal.Header>
                     <Modal.Body>
-                        <Form>
-                            <Form.Group className="mb-4">
-                                <Form.Label>How would you rate the handling of your grievance?</Form.Label>
-                                <div className="d-flex justify-content-center gap-2 mb-3">
-                                    {[1, 2, 3, 4, 5].map((rating) => (
-                                        <button
-                                            key={rating}
-                                            type="button"
-                                            className={`btn ${feedbackRating >= rating ? 'btn-warning' : 'btn-outline-warning'}`}
-                                            onClick={() => setFeedbackRating(rating)}
-                                        >
-                                            <Star size={24} fill={feedbackRating >= rating ? 'currentColor' : 'none'} />
-                                        </button>
-                                    ))}
-                                </div>
-                            </Form.Group>
-                            <Form.Group className="mb-3">
-                                <Form.Label>Additional Comments (Optional)</Form.Label>
-                                <Form.Control
-                                    as="textarea"
-                                    rows={3}
-                                    value={feedbackComment}
-                                    onChange={(e) => setFeedbackComment(e.target.value)}
-                                    placeholder="Share your experience with how your grievance was handled..."
-                                />
-                            </Form.Group>
-                        </Form>
+                        <div className="mb-4">
+                            <p className="mb-3">How would you rate the handling of your grievance?</p>
+                            <div className="d-flex justify-content-center gap-3 mb-3">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <div
+                                        key={star}
+                                        onClick={() => setFeedbackRating(star)}
+                                        style={{ cursor: 'pointer', fontSize: '24px' }}
+                                        className={`star-rating ${feedbackRating >= star ? 'text-warning' : 'text-muted'}`}
+                                    >
+                                        ★
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <Form.Group>
+                            <Form.Label>Additional Comments (Optional)</Form.Label>
+                            <Form.Control
+                                as="textarea"
+                                rows={4}
+                                value={feedbackComment}
+                                onChange={(e) => setFeedbackComment(e.target.value)}
+                                placeholder="Share your experience with how your grievance was handled..."
+                            />
+                        </Form.Group>
                     </Modal.Body>
                     <Modal.Footer>
                         <Button variant="secondary" onClick={() => setShowFeedbackModal(false)}>

@@ -2,6 +2,7 @@ import Grievance from '../models/Grievance.js';
 import { mapCategoryToDepartment } from '../utils/departmentMapper.js';
 import Official from '../models/Official.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import Notification from '../models/Notification.js';
 
 // Update resource management
 export const updateResourceManagement = async (req, res) => {
@@ -169,16 +170,89 @@ function toRad(degrees) {
     return degrees * (Math.PI / 180);
 }
 
-// Create new grievance
+// Add this function before the createGrievance function
+const analyzePriorityLocally = (grievance) => {
+    const description = grievance.description?.toLowerCase() || '';
+    const title = grievance.title?.toLowerCase() || '';
+    const combinedText = `${title} ${description}`;
+    const department = grievance.department?.toLowerCase() || '';
+
+    // Department-specific high priority keywords
+    const highPriorityKeywords = {
+        rto: [
+            'accident', 'emergency', 'death', 'injury', 'fatal', 'collision',
+            'drunk driving', 'hit and run', 'illegal', 'safety hazard',
+            'dangerous driving', 'road rage', 'traffic violation'
+        ],
+        water: [
+            'contamination', 'sewage overflow', 'flood', 'burst pipe', 'no water',
+            'water quality', 'health hazard', 'drinking water', 'main break',
+            'water pollution', 'toxic', 'sewage backup'
+        ],
+        electricity: [
+            'live wire', 'electrocution', 'fire', 'power outage', 'transformer explosion',
+            'electric shock', 'short circuit', 'sparking', 'fallen wire', 'emergency',
+            'hospital power', 'school power'
+        ]
+    };
+
+    // Department-specific medium priority keywords
+    const mediumPriorityKeywords = {
+        rto: [
+            'license renewal', 'registration renewal', 'permit',
+            'vehicle fitness', 'tax payment', 'route deviation',
+            'parking violation', 'traffic congestion'
+        ],
+        water: [
+            'low pressure', 'leakage', 'water meter', 'billing issue',
+            'pipe repair', 'drainage problem', 'water connection',
+            'maintenance', 'water supply'
+        ],
+        electricity: [
+            'voltage fluctuation', 'power surge', 'frequent outages', 'meter issue',
+            'connection problem', 'billing error', 'transformer noise', 'maintenance'
+        ]
+    };
+
+    // Get department-specific keywords
+    const deptHighPriority = highPriorityKeywords[department] || [];
+    const deptMediumPriority = mediumPriorityKeywords[department] || [];
+
+    // Check for matches
+    const hasHighPriority = deptHighPriority.some(keyword => combinedText.includes(keyword));
+    const hasMediumPriority = deptMediumPriority.some(keyword => combinedText.includes(keyword));
+
+    if (hasHighPriority) {
+        return {
+            priority: 'High',
+            explanation: 'This grievance requires immediate attention due to critical issues or safety concerns.',
+            impactAssessment: 'High impact on public safety and essential services.',
+            recommendedResponseTime: '24 hours'
+        };
+    } else if (hasMediumPriority) {
+        return {
+            priority: 'Medium',
+            explanation: 'This grievance needs attention but is not critical.',
+            impactAssessment: 'Moderate impact on services.',
+            recommendedResponseTime: '3-5 working days'
+        };
+    } else {
+        return {
+            priority: 'Low',
+            explanation: 'This is a routine grievance that can be handled through standard procedures.',
+            impactAssessment: 'Limited impact on services.',
+            recommendedResponseTime: '7-10 working days'
+        };
+    }
+};
+
+// Update the createGrievance function's Gemini integration
 export const createGrievance = async (req, res) => {
     try {
-        console.log('Received request body:', req.body);
-        console.log('User from auth middleware:', req.user);
-
         const { title, description, department, location, coordinates } = req.body;
         const petitioner = req.user.id;
 
-        // Initialize Gemini AI with error handling
+        // Initialize priority variables
         let priority = 'Medium';
         let priorityExplanation = 'Priority determined based on grievance content';
         let impactAssessment = 'Impact assessment pending';
@@ -186,42 +260,35 @@ export const createGrievance = async (req, res) => {
 
         try {
             if (!process.env.GEMINI_API_KEY) {
-                console.error('GEMINI_API_KEY is not set in environment variables');
                 throw new Error('GEMINI_API_KEY is not configured');
             }
 
             const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-            // Analyze priority using Gemini
-            const priorityPrompt = `
-                Analyze the following grievance text and determine its priority level.
-                Consider the full context and implications of the situation.
-                
-                Title: ${title}
-                Description: ${description}
-                Department: ${department}
-                Location: ${location}
-                
-                Please provide a comprehensive analysis in the following format:
-                
-                PRIORITY: [High/Medium/Low]
-                PRIORITY_EXPLANATION: [Explain the reasoning behind the priority level]
-                IMPACT_ASSESSMENT: [Analyze the broader implications and impact]
-                RECOMMENDED_RESPONSE_TIME: [Suggest an appropriate response timeframe]
-                
-                Format the response exactly as shown above, with each field on a new line.
-            `;
-
-            const priorityResult = await model.generateContent({
+            const prompt = {
                 contents: [{
-                    parts: [{ text: priorityPrompt }]
+                    parts: [{
+                        text: `
+                            Analyze this grievance and determine its priority:
+                            Title: ${title}
+                            Description: ${description}
+                            Department: ${department}
+                            
+                            Respond in this exact format:
+                            PRIORITY: [High/Medium/Low]
+                            PRIORITY_EXPLANATION: [Brief explanation]
+                            IMPACT_ASSESSMENT: [Impact analysis]
+                            RECOMMENDED_RESPONSE_TIME: [Timeframe]
+                        `
+                    }]
                 }]
-            });
+            };
 
-            const priorityResponse = priorityResult.response.text();
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const priorityResponse = response.text();
 
-            // Extract priority information
             const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
             const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
             const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
@@ -233,116 +300,47 @@ export const createGrievance = async (req, res) => {
             if (recommendedResponseTimeMatch) recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
 
         } catch (error) {
-            console.error('Error in Gemini AI processing:', error);
-            // Continue with default values if Gemini processing fails
+            console.error('Error in Gemini processing:', error);
+            // Fallback to local priority analysis
+            const result = analyzePriorityLocally({ title, description, department });
+            priority = result.priority;
+            priorityExplanation = result.explanation;
+            impactAssessment = result.impactAssessment;
+            recommendedResponseTime = result.recommendedResponseTime;
         }
 
-        // Validate required fields
-        if (!title || !description || !department || !location || !coordinates) {
-            console.log('Missing required fields:', { title, description, department, location, coordinates });
-            return res.status(400).json({
-                error: 'Missing required fields',
-                missingFields: {
-                    title: !title,
-                    description: !description,
-                    department: !department,
-                    location: !location,
-                    coordinates: !coordinates
-                }
-            });
-        }
-
-        // Validate department
-        const validDepartments = ['Water', 'RTO', 'Electricity'];
-        if (!validDepartments.includes(department)) {
-            console.log('Invalid department:', department);
-            return res.status(400).json({
-                error: 'Invalid department',
-                validDepartments
-            });
-        }
-
-        // Find nearest official based on location
-        const officials = await Official.find({ department });
-        let minDistance = Infinity;
-        let nearestOfficeCoordinates = null;
-
-        // Find the nearest office
-        officials.forEach(official => {
-            const distance = calculateDistance(
-                coordinates.latitude,
-                coordinates.longitude,
-                official.officeCoordinates.latitude,
-                official.officeCoordinates.longitude
-            );
-
-            if (distance < minDistance) {
-                minDistance = distance;
-                nearestOfficeCoordinates = official.officeCoordinates;
-            }
-        });
-
-        if (!nearestOfficeCoordinates) {
-            return res.status(404).json({ error: 'No officials found for the specified department' });
-        }
-
-        // Get all officials in that office
-        const nearestOfficeOfficials = officials.filter(official =>
-            official.officeCoordinates.latitude === nearestOfficeCoordinates.latitude &&
-            official.officeCoordinates.longitude === nearestOfficeCoordinates.longitude
-        );
-
-        console.log('Nearest office officials:', nearestOfficeOfficials.map(o => ({
-            id: o._id,
-            name: `${o.firstName} ${o.lastName}`
-        })));
-
-        // Create new grievance
+        // Create the grievance
         const grievance = new Grievance({
-            petitionId: `GRV${Date.now().toString().slice(-6)}`,
             title,
             description,
             department,
             location,
             coordinates,
             petitioner,
-            status: 'pending',
-            assignedOfficials: nearestOfficeOfficials.map(o => o._id), // Store all official IDs
             priority,
             priorityExplanation,
             impactAssessment,
             recommendedResponseTime,
+            status: 'pending',
             statusHistory: [{
                 status: 'pending',
                 updatedBy: petitioner,
                 updatedByType: 'petitioner',
-                comment: `Grievance submitted and pending acceptance by officials at ${nearestOfficeCoordinates.latitude}, ${nearestOfficeCoordinates.longitude}. Priority: ${priority} - ${priorityExplanation}`
+                comment: 'Grievance submitted'
             }]
         });
 
         await grievance.save();
-        console.log('Grievance saved successfully:', grievance);
 
         res.status(201).json({
             message: 'Grievance created successfully',
-            grievance,
-            assignedOfficials: nearestOfficeOfficials.map(o => ({
-                id: o._id,
-                name: `${o.firstName} ${o.lastName}`,
-                distance: calculateDistance(
-                    coordinates.latitude,
-                    coordinates.longitude,
-                    o.officeCoordinates.latitude,
-                    o.officeCoordinates.longitude
-                )
-            }))
+            grievance
         });
     } catch (error) {
         console.error('Error creating grievance:', error);
         res.status(500).json({
             error: 'Failed to create grievance',
-            details: error.message,
-            validationErrors: error.errors
+            details: error.message
         });
     }
 };
@@ -1201,52 +1199,179 @@ export const getEscalatedGrievances = async (req, res) => {
 export const respondToEscalation = async (req, res) => {
     try {
         const { id } = req.params;
-        const { escalationResponse, newStatus, newAssignedTo } = req.body;
-        const adminId = req.user.id;
+        const { escalationResponse, newStatus, newAssignedTo, isReassignment, notification } = req.body;
+        const adminId = req.user?.id;
 
-        const grievance = await Grievance.findById(id);
+        // Validate admin user
+        if (!adminId) {
+            return res.status(401).json({ error: 'Unauthorized - Admin ID not found' });
+        }
+
+        // Validate required fields
+        if (!escalationResponse?.trim()) {
+            return res.status(400).json({ error: 'Escalation response is required' });
+        }
+
+        // Find and update the grievance
+        const grievance = await Grievance.findById(id)
+            .populate('petitioner', 'firstName lastName')
+            .populate('assignedTo', 'firstName lastName');
+
         if (!grievance) {
             return res.status(404).json({ error: 'Grievance not found' });
         }
 
+        // Verify that the grievance is actually escalated
         if (!grievance.isEscalated) {
-            return res.status(400).json({ error: 'Grievance is not escalated' });
+            return res.status(400).json({ error: 'This grievance is not escalated' });
         }
 
-        // Update escalation details
-        grievance.escalationResponse = escalationResponse;
-        grievance.escalationStatus = 'Resolved';
+        // Update grievance fields
+        grievance.escalationResponse = escalationResponse.trim();
+        // Do NOT change the priority - preserve the original priority
 
         // Handle reassignment
-        if (newAssignedTo) {
-            const previousOfficialId = grievance.assignedTo;
-            grievance.assignedTo = newAssignedTo;
-            grievance.status = 'pending'; // Reset to pending for new official
-            grievance.isReassigned = true; // Add flag for reassignment
+        if (isReassignment && newAssignedTo) {
+            try {
+                // Verify the new official exists
+                const newOfficial = await Official.findById(newAssignedTo)
+                    .select('firstName lastName email');
+                if (!newOfficial) {
+                    return res.status(400).json({ error: 'Selected official not found' });
+                }
 
-            // Add to status history
-            grievance.statusHistory.push({
-                status: 'pending',
-                updatedBy: adminId,
-                updatedByType: 'admin',
-                comment: `Grievance reassigned to new official. Previous official: ${previousOfficialId}`
-            });
+                const previousOfficialId = grievance.assignedTo?._id;
+                const previousStatus = grievance.status; // Store previous status
+
+                // Update assigned official
+                grievance.assignedTo = newAssignedTo;
+
+                // Always preserve the previous status if it was in-progress
+                if (previousStatus === 'in-progress') {
+                    grievance.status = 'in-progress';
+
+                    // Add timeline entry for reassignment with resource context
+                    grievance.timelineStages.push({
+                        stageName: 'Reassigned',
+                        date: new Date(),
+                        description: `${grievance.priority} Priority Grievance reassigned to ${newOfficial.firstName} ${newOfficial.lastName}. Previous resource requirements and in-progress status maintained.`
+                    });
+
+                    // Notification for new official about existing resources and status
+                    await Notification.create({
+                        recipient: newAssignedTo,
+                        recipientModel: 'Official',
+                        title: `${grievance.priority} Priority Grievance Reassigned`,
+                        message: `You have been assigned grievance #${grievance.petitionId} which is currently in-progress. This case has existing resource requirements that were previously submitted.`,
+                        type: 'GRIEVANCE_REASSIGNED',
+                        grievanceId: grievance._id
+                    });
+                } else {
+                    // Only set to assigned if it wasn't in-progress
+                    grievance.status = 'assigned';
+
+                    // Add timeline entry for reassignment
+                    grievance.timelineStages.push({
+                        stageName: 'Reassigned',
+                        date: new Date(),
+                        description: `${grievance.priority} Priority Grievance reassigned to ${newOfficial.firstName} ${newOfficial.lastName}`
+                    });
+
+                    // Regular notification for new official
+                    await Notification.create({
+                        recipient: newAssignedTo,
+                        recipientModel: 'Official',
+                        title: `${grievance.priority} Priority Grievance Assignment`,
+                        message: `You have been assigned grievance #${grievance.petitionId}. Please review and submit resource requirements if needed.`,
+                        type: 'GRIEVANCE_ASSIGNED',
+                        grievanceId: grievance._id
+                    });
+                }
+
+                // Notification for the petitioner
+                await Notification.create({
+                    recipient: grievance.petitioner._id,
+                    recipientModel: 'Petitioner',
+                    title: 'Grievance Update: Official Reassigned',
+                    message: `Your ${grievance.priority.toLowerCase()} priority grievance #${grievance.petitionId} has been reassigned to a new official${previousStatus === 'in-progress' ? ' and will continue in progress' : ''}. Admin Response: ${escalationResponse.trim()}`,
+                    type: 'GRIEVANCE_UPDATE',
+                    grievanceId: grievance._id
+                });
+
+                // Notification for the previous official
+                if (previousOfficialId) {
+                    await Notification.create({
+                        recipient: previousOfficialId,
+                        recipientModel: 'Official',
+                        title: 'Grievance Reassigned',
+                        message: `${grievance.priority} priority grievance #${grievance.petitionId} has been reassigned from you to ${newOfficial.firstName} ${newOfficial.lastName}.`,
+                        type: 'GRIEVANCE_REASSIGNED',
+                        grievanceId: grievance._id
+                    });
+                }
+
+            } catch (error) {
+                console.error('Error during reassignment:', error);
+                return res.status(500).json({
+                    error: 'Failed to process reassignment',
+                    details: error.message
+                });
+            }
+        } else {
+            // If no reassignment, just notify the petitioner about the escalation response
+            try {
+                await Notification.create({
+                    recipient: grievance.petitioner._id,
+                    recipientModel: 'Petitioner',
+                    title: `${grievance.priority} Priority Grievance Update`,
+                    message: `Admin has addressed your escalation for grievance #${grievance.petitionId}. Response: ${escalationResponse.trim()}`,
+                    type: 'ESCALATION_RESPONSE',
+                    grievanceId: grievance._id,
+                    createdAt: new Date()
+                });
+
+                // Also notify the current assigned official
+                if (grievance.assignedTo) {
+                    await Notification.create({
+                        recipient: grievance.assignedTo._id,
+                        recipientModel: 'Official',
+                        title: 'Escalation Response Update',
+                        message: `Admin has addressed the escalation for grievance #${grievance.petitionId} that you are handling.`,
+                        type: 'ESCALATION_RESPONSE',
+                        grievanceId: grievance._id,
+                        createdAt: new Date()
+                    });
+                }
+            } catch (notificationError) {
+                console.error('Error creating notifications:', notificationError);
+                // Continue with the process even if notifications fail
+            }
         }
 
-        // Update status if provided and not reassigning
-        if (newStatus && !newAssignedTo) {
-            grievance.status = newStatus;
-        }
-
-        // Add escalation response to status history
+        // Add escalation response to timeline
         grievance.statusHistory.push({
-            status: grievance.status,
+            status: 'assigned',
             updatedBy: adminId,
             updatedByType: 'admin',
-            comment: `Admin responded to escalation: ${escalationResponse}`
+            comment: `Admin responded to escalation: ${escalationResponse.trim()}`
         });
 
-        await grievance.save();
+        // Add timeline entry for escalation response
+        grievance.timelineStages.push({
+            stageName: 'Resolution',
+            date: new Date(),
+            description: `Escalation addressed by Admin with response: ${escalationResponse.trim()}`
+        });
+
+        try {
+            await grievance.save();
+        } catch (saveError) {
+            console.error('Error saving grievance:', saveError);
+            return res.status(500).json({
+                error: 'Failed to save grievance updates',
+                details: saveError.message
+            });
+        }
 
         res.status(200).json({
             message: 'Escalation response submitted successfully',
@@ -1255,7 +1380,7 @@ export const respondToEscalation = async (req, res) => {
     } catch (error) {
         console.error('Error responding to escalation:', error);
         res.status(500).json({
-            error: 'Failed to respond to escalation',
+            error: 'Failed to submit escalation response',
             details: error.message
         });
     }
@@ -1428,51 +1553,73 @@ export const analyzePriorityWithGemini = async (req, res) => {
                 throw new Error('GEMINI_API_KEY is not configured');
             }
 
-            const { GoogleGenerativeAI } = await import('@google/generative-ai');
             const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-            // Analyze priority using Gemini
-            const priorityPrompt = `
-                Analyze the following grievance text and determine its priority level.
-                Consider the full context and implications of the situation.
-                
-                Title: ${title}
-                Description: ${description}
-                Department: ${department}
-                
-                Please provide a comprehensive analysis in the following format:
-                
-                PRIORITY: [High/Medium/Low]
-                PRIORITY_EXPLANATION: [Explain the reasoning behind the priority level]
-                IMPACT_ASSESSMENT: [Analyze the broader implications and impact]
-                RECOMMENDED_RESPONSE_TIME: [Suggest an appropriate response timeframe]
-                
-                Format the response exactly as shown above, with each field on a new line.
-            `;
-
-            const priorityResult = await model.generateContent({
-                contents: [{
-                    parts: [{ text: priorityPrompt }]
-                }]
+            const model = genAI.getGenerativeModel({
+                model: "gemini-pro",
+                generationConfig: {
+                    temperature: 0.7,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: 1024,
+                }
             });
 
-            const priorityResponse = priorityResult.response.text();
+            const prompt = {
+                contents: [{
+                    parts: [{
+                        text: `
+                            Analyze the following grievance details and determine its priority level:
+                            
+                            Title: ${title}
+                            Description: ${description}
+                            Department: ${department}
+                            
+                            Please analyze the severity, urgency, and impact of this grievance.
+                            Consider factors like public safety, service disruption, and time sensitivity.
+                            
+                            Respond in this exact format:
+                            PRIORITY: [High/Medium/Low]
+                            PRIORITY_EXPLANATION: [Brief explanation]
+                            IMPACT_ASSESSMENT: [Impact analysis]
+                            RECOMMENDED_RESPONSE_TIME: [Timeframe]
+                        `
+                    }]
+                }]
+            };
 
-            // Extract priority information
-            const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
-            const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
-            const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
-            const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
+            try {
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                const priorityResponse = response.text();
 
-            if (priorityMatch) priority = priorityMatch[1].trim();
-            if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();
-            if (impactAssessmentMatch) impactAssessment = impactAssessmentMatch[1].trim();
-            if (recommendedResponseTimeMatch) recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
+                // Extract priority information with better error handling
+                const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
+                const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
+                const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
+                const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
 
+                if (priorityMatch) priority = priorityMatch[1].trim();
+                if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();
+                if (impactAssessmentMatch) impactAssessment = impactAssessmentMatch[1].trim();
+                if (recommendedResponseTimeMatch) recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
+
+            } catch (aiError) {
+                console.error('Error in Gemini content generation:', aiError);
+                // Fallback to local priority analysis if Gemini fails
+                const localResult = analyzePriorityLocally({ title, description, department });
+                priority = localResult.priority;
+                priorityExplanation = localResult.explanation;
+                impactAssessment = localResult.impactAssessment;
+                recommendedResponseTime = localResult.recommendedResponseTime;
+            }
         } catch (error) {
-            console.error('Error in Gemini AI processing:', error);
-            // Continue with default values if Gemini processing fails
+            console.error('Error in Gemini initialization:', error);
+            // Fallback to local priority analysis
+            const localResult = analyzePriorityLocally({ title, description, department });
+            priority = localResult.priority;
+            priorityExplanation = localResult.explanation;
+            impactAssessment = localResult.impactAssessment;
+            recommendedResponseTime = localResult.recommendedResponseTime;
         }
 
         res.status(200).json({
