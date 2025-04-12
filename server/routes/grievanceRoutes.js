@@ -27,7 +27,8 @@ import {
     getTimelineStages,
     escalateGrievance,
     getEscalatedGrievances,
-    respondToEscalation
+    respondToEscalation,
+    analyzePriorityWithGemini
 } from '../controllers/grievanceController.js';
 import { processDocument, upload } from '../controllers/documentController.js';
 import Grievance from '../models/Grievance.js';
@@ -125,6 +126,9 @@ router.get('/:id/timeline-stages', getTimelineStages);
 router.post('/:id/escalate', auth, escalateGrievance);
 router.get('/escalated', auth, getEscalatedGrievances);
 router.post('/:id/escalation-response', auth, respondToEscalation);
+
+// Analyze priority using Gemini AI
+router.post('/analyze-priority', auth, analyzePriorityWithGemini);
 
 router.get('/track/:id', async (req, res) => {
     try {

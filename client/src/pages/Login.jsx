@@ -52,7 +52,7 @@ const Login = () => {
                 </div>
                 <h5 className="mt-2">Officials</h5>
                 <p>Login as a department official</p>
-                <button className="btn btn-success w-100" onClick={() =>navigate('/login/official')}>
+                <button className="btn btn-success w-100" onClick={() => navigate('/login/official')}>
                   Login as Official
                 </button>
               </div>
@@ -71,17 +71,17 @@ const Login = () => {
                 <button className="btn btn-danger w-100" onClick={() => navigate('/login/admin')}>
                   Login as Master
                 </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="text-center mt-4">
-          <p>
-            Don't have an account? <Link to="/register" className="text-primary">Register here</Link>
-          </p>
+          <div className="text-center mt-4">
+            <p>
+              Don't have an account? <Link to="/register" className="text-primary">Register here</Link>
+            </p>
+          </div>
         </div>
-      </div>
-    </div >
+      </div >
       <Footer />
     </>
   );

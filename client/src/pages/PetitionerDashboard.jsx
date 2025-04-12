@@ -10,6 +10,7 @@ import TimelineView from '../components/TimelineView';
 import "../styles/Chat.css";
 import { Modal, Form, Button } from "react-bootstrap";
 import { toast } from "react-hot-toast";
+import EscalateModal from '../components/EscalateModal';
 
 const PetitionerDashboard = () => {
     const navigate = useNavigate();
@@ -34,7 +35,7 @@ const PetitionerDashboard = () => {
     const [showChat, setShowChat] = useState(false);
     const [showTimeline, setShowTimeline] = useState(false);
     const [showDocumentModal, setShowDocumentModal] = useState(false);
-    const [showEscalationModal, setShowEscalationModal] = useState(false);
+    const [showEscalateModal, setShowEscalateModal] = useState(false);
     const [selectedGrievanceForEscalation, setSelectedGrievanceForEscalation] = useState(null);
     const [escalationReason, setEscalationReason] = useState('');
     const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -150,32 +151,26 @@ const PetitionerDashboard = () => {
 
     const handleEscalate = async (grievance) => {
         setSelectedGrievanceForEscalation(grievance);
-        setShowEscalationModal(true);
+        setShowEscalateModal(true);
     };
 
-    const submitEscalation = async () => {
+    const handleEscalateSubmit = async (reason) => {
         try {
-            if (!escalationReason.trim()) {
-                toast.error('Please provide a reason for escalation');
-                return;
-            }
-
             const response = await authenticatedFetch(`http://localhost:5000/api/grievances/${selectedGrievanceForEscalation._id}/escalate`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ escalationReason })
+                body: JSON.stringify({ escalationReason: reason }),
             });
+
+            const data = await response.json();
 
             if (response.ok) {
                 toast.success('Grievance escalated successfully');
-                setShowEscalationModal(false);
-                setEscalationReason('');
-                setSelectedGrievanceForEscalation(null);
                 fetchGrievances(); // Refresh the list
+                setShowEscalateModal(false);
             } else {
-                const data = await response.json();
                 toast.error(data.error || 'Failed to escalate grievance');
             }
         } catch (error) {
@@ -587,33 +582,12 @@ const PetitionerDashboard = () => {
                     </div>
                 )}
 
-                <Modal show={showEscalationModal} onHide={() => setShowEscalationModal(false)}>
-                    <Modal.Header closeButton>
-                        <Modal.Title>Escalate Grievance</Modal.Title>
-                    </Modal.Header>
-                    <Modal.Body>
-                        <Form>
-                            <Form.Group className="mb-3">
-                                <Form.Label>Reason for Escalation</Form.Label>
-                                <Form.Control
-                                    as="textarea"
-                                    rows={3}
-                                    value={escalationReason}
-                                    onChange={(e) => setEscalationReason(e.target.value)}
-                                    placeholder="Please provide a reason for escalating this grievance..."
-                                />
-                            </Form.Group>
-                        </Form>
-                    </Modal.Body>
-                    <Modal.Footer>
-                        <Button variant="secondary" onClick={() => setShowEscalationModal(false)}>
-                            Cancel
-                        </Button>
-                        <Button variant="warning" onClick={submitEscalation}>
-                            Submit Escalation
-                        </Button>
-                    </Modal.Footer>
-                </Modal>
+                <EscalateModal
+                    isOpen={showEscalateModal}
+                    onClose={() => setShowEscalateModal(false)}
+                    onSubmit={handleEscalateSubmit}
+                    grievanceId={selectedGrievanceForEscalation?._id}
+                />
 
                 {/* Feedback Modal */}
                 <Modal show={showFeedbackModal} onHide={() => setShowFeedbackModal(false)}>

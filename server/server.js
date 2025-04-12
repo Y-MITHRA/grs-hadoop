@@ -43,13 +43,23 @@ if (!fs.existsSync('uploads')) {
 connectDB();
 
 // Initialize escalation checker
+let lastCheck = null;
 cron.schedule('* * * * *', async () => {
-    console.log('Running escalation check...');
-    try {
-        await checkEligibleEscalations();
-    } catch (error) {
-        console.error('Error in escalation check:', error);
+    const now = new Date();
+    console.log('\n=== Escalation Check ===');
+    console.log('Time:', now.toISOString());
+    if (lastCheck) {
+        console.log('Time since last check:', (now - lastCheck) / 1000, 'seconds');
     }
+
+    try {
+        const eligibleCount = await checkEligibleEscalations();
+        console.log(`Completed escalation check. Found ${eligibleCount} eligible grievances.`);
+        lastCheck = now;
+    } catch (error) {
+        console.error('Failed to run escalation check:', error);
+    }
+    console.log('=== End Check ===\n');
 });
 
 // Middleware

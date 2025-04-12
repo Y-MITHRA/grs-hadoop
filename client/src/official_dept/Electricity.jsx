@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import "../styles/WaterBoard.css";
 import NavBar_Departments from "../components/NavBar_Departments";
 import { useAuth } from "../context/AuthContext";
+import { FaSearch, FaUser, FaSignOutAlt, FaCheck, FaPlay, FaCheckCircle, FaClock, FaClipboardList, FaComments, FaTimes, FaEye, FaTools } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import ChatComponent from '../components/ChatComponent';
-import { MessageCircle } from 'lucide-react';
+import "../styles/Chat.css";
 
 const ElectricityDashboard = () => {
-  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [employeeId, setEmployeeId] = useState("");
   const [email, setEmail] = useState("");
   const [activeTab, setActiveTab] = useState("pending");
@@ -47,11 +50,103 @@ const ElectricityDashboard = () => {
     description: ''
   });
 
+  // Add filteredGrievances computation
+  const filteredGrievances = grievances[activeTab].filter(grievance =>
+    grievance.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    grievance.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    grievance.grievanceId.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const getStatusBadgeClass = (status) => {
+    switch (status?.toLowerCase()) {
+      case 'pending':
+        return 'status-badge pending';
+      case 'assigned':
+        return 'status-badge assigned';
+      case 'in-progress':
+        return 'status-badge in-progress';
+      case 'resolved':
+        return 'status-badge resolved';
+      default:
+        return 'status-badge';
+    }
+  };
+
+  const getPriorityBadgeClass = (priority) => {
+    switch (priority?.toLowerCase()) {
+      case 'high':
+        return 'priority-badge priority-high';
+      case 'medium':
+        return 'priority-badge priority-medium';
+      case 'low':
+        return 'priority-badge priority-low';
+      default:
+        return 'priority-badge';
+    }
+  };
+
+  const analyzePriorityLocally = (grievance) => {
+    const description = grievance.description?.toLowerCase() || '';
+    const title = grievance.title?.toLowerCase() || '';
+
+    // Keywords indicating high priority for Electricity department
+    const highPriorityKeywords = [
+      'urgent', 'emergency', 'immediate', 'critical', 'severe', 'dangerous',
+      'power outage', 'electrical hazard', 'fire', 'shock', 'live wire',
+      'transformer explosion', 'electrocution', 'short circuit'
+    ];
+
+    // Keywords indicating medium priority
+    const mediumPriorityKeywords = [
+      'important', 'moderate', 'repair', 'fix', 'maintenance',
+      'voltage fluctuation', 'irregular supply', 'meter issue',
+      'connection problem', 'billing error'
+    ];
+
+    // Check for high priority keywords
+    const hasHighPriority = highPriorityKeywords.some(keyword =>
+      description.includes(keyword) || title.includes(keyword)
+    );
+
+    // Check for medium priority keywords
+    const hasMediumPriority = mediumPriorityKeywords.some(keyword =>
+      description.includes(keyword) || title.includes(keyword)
+    );
+
+    if (hasHighPriority) {
+      return {
+        priority: 'High',
+        explanation: 'This grievance requires immediate attention due to potential electrical hazards or safety concerns.',
+        impactAssessment: 'High impact on public safety and essential electrical services. Immediate action required.',
+        recommendedResponseTime: '24-48 hours'
+      };
+    } else if (hasMediumPriority) {
+      return {
+        priority: 'Medium',
+        explanation: 'This grievance needs attention but is not critical.',
+        impactAssessment: 'Moderate impact on electrical services. Action required within standard timeframe.',
+        recommendedResponseTime: '3-5 working days'
+      };
+    } else {
+      return {
+        priority: 'Low',
+        explanation: 'This is a routine grievance that can be handled through standard procedures.',
+        impactAssessment: 'Limited impact on electrical services. Can be addressed through regular maintenance.',
+        recommendedResponseTime: '7-10 working days'
+      };
+    }
+  };
+
   useEffect(() => {
-    setEmployeeId(localStorage.getItem("employeeId") || "N/A");
-    setEmail(localStorage.getItem("email") || "N/A");
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    setEmployeeId(user.id);
+    setEmail(user.email);
     fetchGrievances();
-  }, [activeTab]);
+  }, [user, activeTab]);
 
   const fetchGrievances = async () => {
     try {
@@ -70,14 +165,35 @@ const ElectricityDashboard = () => {
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          logout();
+          navigate('/login');
+          return;
+        }
         throw new Error('Failed to fetch grievances');
       }
 
       const data = await response.json();
+      const processedGrievances = data.grievances.map(grievance => {
+        // Analyze priority locally
+        const priorityData = analyzePriorityLocally(grievance);
+
+        return {
+          ...grievance,
+          grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
+          title: grievance.title || 'No Title',
+          description: grievance.description || 'No Description',
+          createdAt: grievance.createdAt || new Date().toISOString(),
+          priority: priorityData.priority,
+          priorityExplanation: priorityData.explanation,
+          impactAssessment: priorityData.impactAssessment,
+          recommendedResponseTime: priorityData.recommendedResponseTime
+        };
+      });
 
       setGrievances(prev => ({
         ...prev,
-        [activeTab]: data.grievances
+        [activeTab]: processedGrievances
       }));
 
       if (data.stats) {
@@ -304,6 +420,187 @@ const ElectricityDashboard = () => {
     setShowChat(true);
   };
 
+  const renderDetailsModal = () => {
+    if (!selectedGrievance) return null;
+    return (
+      <div className="modal">
+        <div className="modal-content">
+          <div className="modal-header">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Grievance Details</h2>
+              <p className="text-sm text-gray-500 mt-1">ID: {selectedGrievance.grievanceId}</p>
+            </div>
+            <button
+              onClick={() => setShowDetails(false)}
+              className="text-gray-400 hover:text-gray-500 hover:bg-gray-100 rounded-full p-2 transition-colors"
+            >
+              <FaTimes size={20} />
+            </button>
+          </div>
+
+          <div className="modal-body space-y-6">
+            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Priority Analysis</h3>
+                <span className={getPriorityBadgeClass(selectedGrievance.priority)}>
+                  {selectedGrievance.priority || 'Not set'}
+                </span>
+              </div>
+              <p className="text-gray-700 leading-relaxed">
+                {selectedGrievance.priorityExplanation || 'Priority explanation not available'}
+              </p>
+            </div>
+
+            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Impact Assessment</h3>
+              <p className="text-gray-700 leading-relaxed">
+                {selectedGrievance.impactAssessment || 'Impact assessment not available'}
+              </p>
+            </div>
+
+            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Response Time</h3>
+              <p className="text-gray-700 leading-relaxed">
+                {selectedGrievance.recommendedResponseTime || 'Standard response time'}
+              </p>
+            </div>
+
+            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Location Details</h3>
+              <p className="text-gray-700 leading-relaxed">
+                {selectedGrievance.location || 'Location details not available'}
+              </p>
+            </div>
+
+            {selectedGrievance.assignedTo && (
+              <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Assigned Personnel</h3>
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                    <FaUser className="text-blue-600" size={24} />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {selectedGrievance.assignedTo.firstName} {selectedGrievance.assignedTo.lastName}
+                    </p>
+                    <p className="text-sm text-gray-500">{selectedGrievance.assignedTo.email}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="modal-actions">
+            <button
+              onClick={() => setShowDetails(false)}
+              className="btn btn-secondary"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGrievanceCard = (grievance) => {
+    return (
+      <div key={grievance._id} className="grievance-card">
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <h3 className="text-xl font-semibold text-gray-900">{grievance.title}</h3>
+              <span className={getPriorityBadgeClass(grievance.priority)}>
+                {grievance.priority || 'Not set'}
+              </span>
+            </div>
+            <div className="text-sm text-gray-600 space-y-1">
+              <p className="flex items-center gap-2">
+                <span className="font-medium">ID:</span> {grievance.grievanceId}
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="font-medium">Created:</span> {new Date(grievance.createdAt).toLocaleDateString()}
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="font-medium">Status:</span>
+                <span className={getStatusBadgeClass(grievance.status)}>{grievance.status}</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSelectedGrievance(grievance);
+                setShowDetails(true);
+              }}
+              className="btn btn-primary"
+            >
+              <FaEye className="mr-2" /> View Details
+            </button>
+            <button
+              onClick={() => handleViewChat(grievance)}
+              className="btn btn-secondary"
+            >
+              <FaComments className="mr-2" /> Chat
+            </button>
+          </div>
+        </div>
+        <p className="text-gray-700 mb-4 line-clamp-2">{grievance.description}</p>
+        <div className="flex justify-end gap-2">
+          {activeTab === 'pending' && (
+            <>
+              <button
+                onClick={() => handleAccept(grievance._id)}
+                className="btn btn-success"
+              >
+                <FaCheck className="mr-2" /> Accept
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedGrievance(grievance);
+                  setShowDeclineModal(true);
+                }}
+                className="btn btn-danger"
+              >
+                <FaTimes className="mr-2" /> Decline
+              </button>
+            </>
+          )}
+          {activeTab === 'assigned' && (
+            <button
+              onClick={() => {
+                setSelectedGrievance(grievance);
+                setShowResourceModal(true);
+              }}
+              className="btn btn-primary"
+            >
+              <FaTools className="mr-2" /> Resource Management
+            </button>
+          )}
+          {activeTab === 'inProgress' && (
+            <>
+              <button
+                onClick={() => {
+                  setSelectedGrievance(grievance);
+                  setShowTimelineModal(true);
+                }}
+                className="btn btn-primary"
+              >
+                <FaClock className="mr-2" /> Update Timeline
+              </button>
+              <button
+                onClick={() => handleResolve(grievance._id)}
+                className="btn btn-success"
+              >
+                <FaCheckCircle className="mr-2" /> Mark as Resolved
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div>
       <NavBar_Departments />
@@ -324,14 +621,6 @@ const ElectricityDashboard = () => {
               <span>Grievances</span>
             </div>
             <div className="menu-item">
-              <span className="icon">⚡</span>
-              <span>Power Services</span>
-            </div>
-            <div className="menu-item">
-              <span className="icon">📄</span>
-              <span>Billing</span>
-            </div>
-            <div className="menu-item">
               <span className="icon">📊</span>
               <span>Reports</span>
             </div>
@@ -339,7 +628,7 @@ const ElectricityDashboard = () => {
               <span className="icon">⚙️</span>
               <span>Settings</span>
             </div>
-            <div className="menu-item" onClick={handleLogout}>
+            <div className="menu-item" onClick={logout}>
               <span className="icon">🚪</span>
               <span>Logout</span>
             </div>
@@ -368,160 +657,62 @@ const ElectricityDashboard = () => {
               </div>
             </div>
 
-            <div className="tabs">
-              <div
-                className={`tab ${activeTab === "pending" ? "active" : ""}`}
-                onClick={() => setActiveTab("pending")}
-              >
-                Pending
+            <div className="tab-container">
+              <div className="tabs">
+                <button
+                  className={`tab ${activeTab === "pending" ? "active" : ""}`}
+                  onClick={() => setActiveTab("pending")}
+                >
+                  Pending
+                </button>
+                <button
+                  className={`tab ${activeTab === "assigned" ? "active" : ""}`}
+                  onClick={() => setActiveTab("assigned")}
+                >
+                  Assigned
+                </button>
+                <button
+                  className={`tab ${activeTab === "inProgress" ? "active" : ""}`}
+                  onClick={() => setActiveTab("inProgress")}
+                >
+                  In Progress
+                </button>
+                <button
+                  className={`tab ${activeTab === "resolved" ? "active" : ""}`}
+                  onClick={() => setActiveTab("resolved")}
+                >
+                  Resolved
+                </button>
               </div>
-              <div
-                className={`tab ${activeTab === "assigned" ? "active" : ""}`}
-                onClick={() => setActiveTab("assigned")}
-              >
-                Assigned
-              </div>
-              <div
-                className={`tab ${activeTab === "inProgress" ? "active" : ""}`}
-                onClick={() => setActiveTab("inProgress")}
-              >
-                In Progress
-              </div>
-              <div
-                className={`tab ${activeTab === "resolved" ? "active" : ""}`}
-                onClick={() => setActiveTab("resolved")}
-              >
-                Resolved
-              </div>
-            </div>
 
-            <div className="search-filter">
-              <div className="search-box">
-                <span className="search-icon">🔍</span>
-                <input
-                  type="text"
-                  placeholder="Search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+              <div className="search-container">
+                <div className="search-box">
+                  <FaSearch className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="search-input"
+                  />
+                </div>
               </div>
-              <button className="filter-btn">
-                <span>Filter</span>
-                <span className="filter-icon">🔽</span>
-              </button>
-            </div>
 
-            {loading ? (
-              <div className="text-center p-4">Loading...</div>
-            ) : error ? (
-              <div className="alert alert-danger">{error}</div>
-            ) : (
-              <div className="grievance-list">
-                {grievances[activeTab].map((grievance) => (
-                  <div className="grievance-item" key={grievance._id}>
-                    <div className="grievance-header">
-                      <div className="grievance-id">{grievance.petitionId}</div>
-                      <div className="grievance-title">{grievance.title}</div>
-                      <div className="grievance-assignee">
-                        {grievance.assignedTo && (
-                          <>
-                            <img src="/api/placeholder/24/24" alt="Assignee" className="assignee-avatar" />
-                            <span>{grievance.assignedTo.firstName} {grievance.assignedTo.lastName}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grievance-details">
-                      <div className="grievance-date">
-                        {new Date(grievance.createdAt).toLocaleDateString()}
-                      </div>
-                      <div className="grievance-status">
-                        <span className={`status ${grievance.status.toLowerCase()}`}>
-                          {grievance.status}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="grievance-actions">
-                      {activeTab === "pending" && (
-                        <>
-                          <button
-                            className="btn btn-success"
-                            onClick={() => handleAccept(grievance._id)}
-                          >
-                            Accept
-                          </button>
-                          <button
-                            className="btn btn-danger"
-                            onClick={() => {
-                              setSelectedGrievance(grievance);
-                              setShowDeclineModal(true);
-                            }}
-                          >
-                            Decline
-                          </button>
-                        </>
-                      )}
-                      {activeTab === "assigned" && (
-                        <>
-                          <button
-                            className="btn btn-primary"
-                            onClick={() => {
-                              setSelectedGrievance(grievance);
-                              setShowResourceModal(true);
-                            }}
-                          >
-                            Resource Management
-                          </button>
-                        </>
-                      )}
-                      {activeTab === "inProgress" && (
-                        <>
-                          <button
-                            className="btn btn-info"
-                            onClick={() => {
-                              setSelectedGrievance(grievance);
-                              setShowTimelineModal(true);
-                            }}
-                          >
-                            Update Timeline
-                          </button>
-                          <button
-                            className="btn btn-success"
-                            onClick={() => handleResolve(grievance._id)}
-                          >
-                            Mark as Resolved
-                          </button>
-                        </>
-                      )}
-                      <div className="d-flex gap-2">
-                        {grievance.status === 'in-progress' && (
-                          <button
-                            className="btn btn-sm btn-primary"
-                            onClick={() => handleViewChat(grievance)}
-                          >
-                            <MessageCircle size={16} className="me-1" />
-                            Chat
-                          </button>
-                        )}
-                      </div>
-                      <button
-                        className="btn btn-outline-primary"
-                        onClick={() => {
-                          setSelectedGrievance(grievance);
-                          setShowDetails(true);
-                        }}
-                      >
-                        View Details
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {grievances[activeTab].length === 0 && (
-                  <div className="text-center p-4">No grievances found</div>
+              <div className="grievances-list">
+                {loading ? (
+                  <div className="loading">Loading...</div>
+                ) : error ? (
+                  <div className="error">{error}</div>
+                ) : filteredGrievances.length === 0 ? (
+                  <div className="no-grievances">No grievances found</div>
+                ) : (
+                  filteredGrievances.map((grievance) => renderGrievanceCard(grievance))
                 )}
               </div>
-            )}
+            </div>
           </main>
+
+          {showDetails && renderDetailsModal()}
         </div>
       </div>
 
@@ -724,29 +915,6 @@ const ElectricityDashboard = () => {
                   officialId={user.id}
                 />
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDetails && selectedGrievance && (
-        <div className="modal">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3>Grievance Details</h3>
-              <button onClick={() => setShowDetails(false)}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p><strong>ID:</strong> {selectedGrievance._id}</p>
-              <p><strong>Title:</strong> {selectedGrievance.title}</p>
-              <p><strong>Description:</strong> {selectedGrievance.description}</p>
-              <p><strong>Status:</strong> {selectedGrievance.status}</p>
-              <p><strong>Priority:</strong> {selectedGrievance.priority}</p>
-              <p><strong>Created At:</strong> {new Date(selectedGrievance.createdAt).toLocaleString()}</p>
-              <p><strong>Location:</strong> {selectedGrievance.location}</p>
-              {selectedGrievance.assignedTo && (
-                <p><strong>Assigned To:</strong> {selectedGrievance.assignedTo.firstName} {selectedGrievance.assignedTo.lastName}</p>
-              )}
             </div>
           </div>
         </div>

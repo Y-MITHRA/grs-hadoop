@@ -218,6 +218,24 @@ const grievanceSchema = new mongoose.Schema({
     escalationEligible: {
         type: Boolean,
         default: false
+    },
+    priority: {
+        type: String,
+        required: true,
+        enum: ['High', 'Medium', 'Low'],
+        default: 'Medium'
+    },
+    priorityExplanation: {
+        type: String,
+        required: true
+    },
+    impactAssessment: {
+        type: String,
+        required: true
+    },
+    recommendedResponseTime: {
+        type: String,
+        required: true
     }
 }, {
     timestamps: true

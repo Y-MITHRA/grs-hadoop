@@ -1,6 +1,7 @@
 import Grievance from '../models/Grievance.js';
 import { mapCategoryToDepartment } from '../utils/departmentMapper.js';
 import Official from '../models/Official.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Update resource management
 export const updateResourceManagement = async (req, res) => {
@@ -177,6 +178,65 @@ export const createGrievance = async (req, res) => {
         const { title, description, department, location, coordinates } = req.body;
         const petitioner = req.user.id;
 
+        // Initialize Gemini AI with error handling
+        let priority = 'Medium';
+        let priorityExplanation = 'Priority determined based on grievance content';
+        let impactAssessment = 'Impact assessment pending';
+        let recommendedResponseTime = 'Standard response time';
+
+        try {
+            if (!process.env.GEMINI_API_KEY) {
+                console.error('GEMINI_API_KEY is not set in environment variables');
+                throw new Error('GEMINI_API_KEY is not configured');
+            }
+
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+            // Analyze priority using Gemini
+            const priorityPrompt = `
+                Analyze the following grievance text and determine its priority level.
+                Consider the full context and implications of the situation.
+                
+                Title: ${title}
+                Description: ${description}
+                Department: ${department}
+                Location: ${location}
+                
+                Please provide a comprehensive analysis in the following format:
+                
+                PRIORITY: [High/Medium/Low]
+                PRIORITY_EXPLANATION: [Explain the reasoning behind the priority level]
+                IMPACT_ASSESSMENT: [Analyze the broader implications and impact]
+                RECOMMENDED_RESPONSE_TIME: [Suggest an appropriate response timeframe]
+                
+                Format the response exactly as shown above, with each field on a new line.
+            `;
+
+            const priorityResult = await model.generateContent({
+                contents: [{
+                    parts: [{ text: priorityPrompt }]
+                }]
+            });
+
+            const priorityResponse = priorityResult.response.text();
+
+            // Extract priority information
+            const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
+            const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
+            const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
+            const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
+
+            if (priorityMatch) priority = priorityMatch[1].trim();
+            if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();
+            if (impactAssessmentMatch) impactAssessment = impactAssessmentMatch[1].trim();
+            if (recommendedResponseTimeMatch) recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
+
+        } catch (error) {
+            console.error('Error in Gemini AI processing:', error);
+            // Continue with default values if Gemini processing fails
+        }
+
         // Validate required fields
         if (!title || !description || !department || !location || !coordinates) {
             console.log('Missing required fields:', { title, description, department, location, coordinates });
@@ -248,11 +308,15 @@ export const createGrievance = async (req, res) => {
             petitioner,
             status: 'pending',
             assignedOfficials: nearestOfficeOfficials.map(o => o._id), // Store all official IDs
+            priority,
+            priorityExplanation,
+            impactAssessment,
+            recommendedResponseTime,
             statusHistory: [{
                 status: 'pending',
                 updatedBy: petitioner,
                 updatedByType: 'petitioner',
-                comment: `Grievance submitted and pending acceptance by officials at ${nearestOfficeCoordinates.latitude}, ${nearestOfficeCoordinates.longitude}`
+                comment: `Grievance submitted and pending acceptance by officials at ${nearestOfficeCoordinates.latitude}, ${nearestOfficeCoordinates.longitude}. Priority: ${priority} - ${priorityExplanation}`
             }]
         });
 
@@ -1200,42 +1264,41 @@ export const respondToEscalation = async (req, res) => {
 // Check for eligible escalations (cron job)
 export const checkEligibleEscalations = async () => {
     try {
+        const twoDaysAgo = new Date();
+        twoDaysAgo.setHours(twoDaysAgo.getHours() - 48);
+
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-        console.log('Checking for eligible escalations...');
-        console.log('Seven days ago:', sevenDaysAgo);
+        console.log('Starting escalation check...');
 
-        // First, get all grievances that are not escalated
+        // Get all unresolved and non-escalated grievances
         const allGrievances = await Grievance.find({
             isEscalated: false,
-            $or: [
-                // Cases in initial stages for more than 7 days
-                {
-                    status: { $in: ['pending', 'assigned', 'start'] },
-                    createdAt: { $lt: sevenDaysAgo }
-                },
-                // Cases with resource management but no timeline updates
-                {
-                    'resourceManagement.startDate': { $exists: true },
-                    'resourceManagement.endDate': { $exists: true }
-                }
-            ]
-        });
+            status: { $ne: 'resolved' }
+        }).populate('assignedTo').lean();
 
-        console.log(`Found ${allGrievances.length} potential grievances to check`);
+        console.log(`Found ${allGrievances.length} unresolved grievances to check`);
 
         // Filter grievances that need escalation
         const eligibleGrievances = allGrievances.filter(grievance => {
-            // Condition 1: Case in pending/assigned/start for more than 7 days
-            if (['pending', 'assigned', 'start'].includes(grievance.status) &&
-                grievance.createdAt < sevenDaysAgo) {
-                console.log(`Grievance ${grievance._id} eligible due to status duration`);
+            // 1. High priority cases not resolved within 48 hours
+            if (grievance.priority === 'High' &&
+                new Date(grievance.createdAt) < twoDaysAgo) {
+                console.log(`Grievance ${grievance._id} eligible: High priority not resolved within 48 hours`);
                 return true;
             }
 
-            // Condition 2: Check timeline progress
-            if (grievance.resourceManagement &&
+            // 2. Stuck in pending or assigned status for more than 7 days
+            if (['pending', 'assigned'].includes(grievance.status) &&
+                new Date(grievance.createdAt) < sevenDaysAgo) {
+                console.log(`Grievance ${grievance._id} eligible: Stuck in ${grievance.status} status for over 7 days`);
+                return true;
+            }
+
+            // 3. In-progress with no milestone updates after 50% timeline
+            if (grievance.status === 'in-progress' &&
+                grievance.resourceManagement &&
                 grievance.resourceManagement.startDate &&
                 grievance.resourceManagement.endDate) {
 
@@ -1243,37 +1306,25 @@ export const checkEligibleEscalations = async () => {
                 const endDate = new Date(grievance.resourceManagement.endDate);
                 const now = new Date();
 
-                // Calculate total duration and elapsed time
+                // Calculate timeline progress
                 const totalDuration = endDate.getTime() - startDate.getTime();
                 const elapsedTime = now.getTime() - startDate.getTime();
                 const progressPercentage = (elapsedTime / totalDuration) * 100;
 
-                console.log(`Grievance ${grievance._id} timeline progress:`, {
-                    startDate: startDate.toISOString(),
-                    endDate: endDate.toISOString(),
-                    now: now.toISOString(),
-                    totalDuration: totalDuration / (1000 * 60 * 60 * 24) + ' days',
-                    elapsedTime: elapsedTime / (1000 * 60 * 60 * 24) + ' days',
-                    progressPercentage: progressPercentage.toFixed(2) + '%',
-                    timelineStages: grievance.timelineStages?.length || 0
-                });
-
-                // Check if more than 50% time has passed
+                // If we're past 50% of the timeline
                 if (progressPercentage >= 50) {
-                    // No timeline stages at all
-                    if (!grievance.timelineStages || grievance.timelineStages.length === 0) {
-                        console.log(`Grievance ${grievance._id} eligible: No timeline stages`);
-                        return true;
-                    }
+                    const midPoint = new Date(startDate.getTime() + totalDuration / 2);
 
-                    // Check if the last update was before the halfway point
-                    const halfwayPoint = new Date(startDate.getTime() + (totalDuration / 2));
-                    const lastUpdate = grievance.timelineStages.length > 0
-                        ? new Date(grievance.timelineStages[grievance.timelineStages.length - 1].date)
-                        : startDate;
+                    // Get the latest milestone update after the start date
+                    const latestUpdate = grievance.timelineStages && grievance.timelineStages.length > 0 ?
+                        grievance.timelineStages
+                            .filter(stage => new Date(stage.date) > startDate)
+                            .sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+                        : null;
 
-                    if (lastUpdate < halfwayPoint) {
-                        console.log(`Grievance ${grievance._id} eligible: Last update before halfway point`);
+                    // Check if no updates after midpoint
+                    if (!latestUpdate || new Date(latestUpdate.date) < midPoint) {
+                        console.log(`Grievance ${grievance._id} eligible: No milestone updates after 50% timeline (${progressPercentage.toFixed(1)}% elapsed)`);
                         return true;
                     }
                 }
@@ -1282,25 +1333,159 @@ export const checkEligibleEscalations = async () => {
             return false;
         });
 
-        console.log('Found eligible grievances:', eligibleGrievances.length);
+        console.log(`Found ${eligibleGrievances.length} grievances eligible for escalation`);
 
         // Mark eligible grievances
         for (const grievance of eligibleGrievances) {
-            console.log('Marking grievance for escalation:', {
-                id: grievance._id,
-                petitionId: grievance.petitionId,
-                department: grievance.department,
-                status: grievance.status,
-                startDate: grievance.resourceManagement?.startDate,
-                endDate: grievance.resourceManagement?.endDate
+            const escalationReason = determineEscalationReason(grievance, twoDaysAgo, sevenDaysAgo);
+
+            await Grievance.findByIdAndUpdate(grievance._id, {
+                $set: {
+                    escalationEligible: true,
+                    escalationReason,
+                    updatedAt: new Date()
+                }
             });
 
-            grievance.escalationEligible = true;
-            await grievance.save();
+            console.log('Marked grievance for escalation:', {
+                id: grievance._id,
+                petitionId: grievance.petitionId,
+                reason: escalationReason
+            });
         }
 
-        console.log(`Marked ${eligibleGrievances.length} grievances as eligible for escalation`);
+        return eligibleGrievances.length;
     } catch (error) {
-        console.error('Error checking eligible escalations:', error);
+        console.error('Error in checkEligibleEscalations:', error);
+        throw error;
+    }
+};
+
+// Helper function to determine escalation reason
+function determineEscalationReason(grievance, twoDaysAgo, sevenDaysAgo) {
+    const reasons = [];
+
+    // Check high priority not resolved within 48 hours
+    if (grievance.priority === 'High' && new Date(grievance.createdAt) < twoDaysAgo) {
+        reasons.push('High priority grievance not resolved within 48 hours');
+    }
+
+    // Check stuck in pending or assigned status
+    if (['pending', 'assigned'].includes(grievance.status) &&
+        new Date(grievance.createdAt) < sevenDaysAgo) {
+        reasons.push(`Grievance stuck in ${grievance.status} status for over 7 days`);
+    }
+
+    // Check for missing milestone updates in in-progress state
+    if (grievance.status === 'in-progress' &&
+        grievance.resourceManagement &&
+        grievance.resourceManagement.startDate &&
+        grievance.resourceManagement.endDate) {
+
+        const startDate = new Date(grievance.resourceManagement.startDate);
+        const endDate = new Date(grievance.resourceManagement.endDate);
+        const now = new Date();
+
+        const totalDuration = endDate.getTime() - startDate.getTime();
+        const elapsedTime = now.getTime() - startDate.getTime();
+        const progressPercentage = (elapsedTime / totalDuration) * 100;
+
+        if (progressPercentage >= 50) {
+            const midPoint = new Date(startDate.getTime() + totalDuration / 2);
+            const latestUpdate = grievance.timelineStages && grievance.timelineStages.length > 0 ?
+                grievance.timelineStages
+                    .filter(stage => new Date(stage.date) > startDate)
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))[0]
+                : null;
+
+            if (!latestUpdate || new Date(latestUpdate.date) < midPoint) {
+                reasons.push(`No milestone updates after ${progressPercentage.toFixed(1)}% of timeline completion in in-progress state`);
+            }
+        }
+    }
+
+    return reasons.join('; ');
+}
+
+// Analyze priority using Gemini AI
+export const analyzePriorityWithGemini = async (req, res) => {
+    try {
+        const { title, description, department } = req.body;
+
+        if (!title || !description || !department) {
+            return res.status(400).json({ error: 'Title, description, and department are required' });
+        }
+
+        // Initialize Gemini AI with error handling
+        let priority = 'Medium';
+        let priorityExplanation = 'Priority determined based on grievance content';
+        let impactAssessment = 'Impact assessment pending';
+        let recommendedResponseTime = 'Standard response time';
+
+        try {
+            if (!process.env.GEMINI_API_KEY) {
+                console.error('GEMINI_API_KEY is not set in environment variables');
+                throw new Error('GEMINI_API_KEY is not configured');
+            }
+
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+            // Analyze priority using Gemini
+            const priorityPrompt = `
+                Analyze the following grievance text and determine its priority level.
+                Consider the full context and implications of the situation.
+                
+                Title: ${title}
+                Description: ${description}
+                Department: ${department}
+                
+                Please provide a comprehensive analysis in the following format:
+                
+                PRIORITY: [High/Medium/Low]
+                PRIORITY_EXPLANATION: [Explain the reasoning behind the priority level]
+                IMPACT_ASSESSMENT: [Analyze the broader implications and impact]
+                RECOMMENDED_RESPONSE_TIME: [Suggest an appropriate response timeframe]
+                
+                Format the response exactly as shown above, with each field on a new line.
+            `;
+
+            const priorityResult = await model.generateContent({
+                contents: [{
+                    parts: [{ text: priorityPrompt }]
+                }]
+            });
+
+            const priorityResponse = priorityResult.response.text();
+
+            // Extract priority information
+            const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
+            const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
+            const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
+            const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
+
+            if (priorityMatch) priority = priorityMatch[1].trim();
+            if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();
+            if (impactAssessmentMatch) impactAssessment = impactAssessmentMatch[1].trim();
+            if (recommendedResponseTimeMatch) recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
+
+        } catch (error) {
+            console.error('Error in Gemini AI processing:', error);
+            // Continue with default values if Gemini processing fails
+        }
+
+        res.status(200).json({
+            priority,
+            priorityExplanation,
+            impactAssessment,
+            recommendedResponseTime
+        });
+    } catch (error) {
+        console.error('Error analyzing priority:', error);
+        res.status(500).json({
+            error: 'Failed to analyze priority',
+            details: error.message
+        });
     }
 };

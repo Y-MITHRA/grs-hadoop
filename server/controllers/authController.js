@@ -307,28 +307,27 @@ export const registerPetitioner = async (req, res) => {
             error: error.message
         });
     }
-}; 
+};
 
 // Get resource management data from all departments
 export const getResourceManagementData = async (req, res) => {
     try {
         const grievances = await Grievance.find({
-            resourceManagement: { $exists: true },
-            'resourceManagement.startDate': { $exists: true }
+            resourceManagement: { $exists: true }
         })
-        .select('department resourceManagement status petitionId')
-        .lean();
+            .select('department resourceManagement status petitionId')
+            .lean();
 
         const resources = grievances.map(grievance => ({
             _id: grievance._id,
             department: grievance.department,
             grievanceId: grievance.petitionId,
-            startDate: grievance.resourceManagement.startDate,
-            endDate: grievance.resourceManagement.endDate,
-            requirementsNeeded: grievance.resourceManagement.requirementsNeeded,
-            fundsRequired: grievance.resourceManagement.fundsRequired,
-            resourcesRequired: grievance.resourceManagement.resourcesRequired,
-            manpowerNeeded: grievance.resourceManagement.manpowerNeeded,
+            startDate: grievance.resourceManagement?.startDate || new Date(),
+            endDate: grievance.resourceManagement?.endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            requirementsNeeded: grievance.resourceManagement?.requirementsNeeded || 'Not specified',
+            fundsRequired: grievance.resourceManagement?.fundsRequired || 0,
+            resourcesRequired: grievance.resourceManagement?.resourcesRequired || 'Not specified',
+            manpowerNeeded: grievance.resourceManagement?.manpowerNeeded || 'Not specified',
             status: grievance.status === 'resolved' ? 'Completed' : 'In Progress'
         }));
 

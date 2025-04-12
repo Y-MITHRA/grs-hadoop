@@ -22,6 +22,8 @@ const AdminDashboard = () => {
     const [newStatus, setNewStatus] = useState('');
     const [newAssignedTo, setNewAssignedTo] = useState('');
     const [officials, setOfficials] = useState([]);
+    const [escalatedLoading, setEscalatedLoading] = useState(false);
+    const [escalatedError, setEscalatedError] = useState(null);
 
     // Mock statistics
     const quickStats = [
@@ -114,6 +116,9 @@ const AdminDashboard = () => {
 
     const fetchEscalatedGrievances = async () => {
         try {
+            setEscalatedLoading(true);
+            setEscalatedError(null);
+
             const token = localStorage.getItem('token');
             if (!token) {
                 throw new Error('No authentication token found');
@@ -133,7 +138,10 @@ const AdminDashboard = () => {
             setEscalatedGrievances(data.grievances);
         } catch (error) {
             console.error('Error fetching escalated grievances:', error);
+            setEscalatedError('Failed to load escalated grievances');
             toast.error('Failed to load escalated grievances');
+        } finally {
+            setEscalatedLoading(false);
         }
     };
 
@@ -207,6 +215,34 @@ const AdminDashboard = () => {
     const handleTabChange = (tab) => {
         console.log('Changing tab to:', tab);
         setActiveTab(tab);
+    };
+
+    const getPriorityBadgeClass = (priority) => {
+        switch (priority?.toLowerCase()) {
+            case 'high':
+                return 'danger';
+            case 'medium':
+                return 'warning';
+            case 'low':
+                return 'success';
+            default:
+                return 'secondary';
+        }
+    };
+
+    const getStatusBadgeClass = (status) => {
+        switch (status?.toLowerCase()) {
+            case 'resolved':
+                return 'success';
+            case 'in-progress':
+                return 'primary';
+            case 'assigned':
+                return 'info';
+            case 'pending':
+                return 'warning';
+            default:
+                return 'secondary';
+        }
     };
 
     const renderContent = () => {
@@ -335,64 +371,111 @@ const AdminDashboard = () => {
                     <Card className="shadow-sm">
                         <Card.Header className="d-flex justify-content-between align-items-center">
                             <h6 className="mb-0">Escalated Grievances</h6>
-                            <Button variant="outline-primary" size="sm" onClick={fetchEscalatedGrievances}>
-                                Refresh
+                            <Button
+                                variant="outline-primary"
+                                size="sm"
+                                onClick={fetchEscalatedGrievances}
+                                disabled={escalatedLoading}
+                            >
+                                {escalatedLoading ? (
+                                    <>
+                                        <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                        Loading...
+                                    </>
+                                ) : (
+                                    <>Refresh</>
+                                )}
                             </Button>
                         </Card.Header>
                         <Card.Body>
-                            <Table responsive>
-                                <thead>
-                                    <tr>
-                                        <th>Grievance ID</th>
-                                        <th>Title</th>
-                                        <th>Department</th>
-                                        <th>Status</th>
-                                        <th>Assigned Official</th>
-                                        <th>Created At</th>
-                                        <th>Escalated At</th>
-                                        <th>Days Since Escalation</th>
-                                        <th>Escalation Reason</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {escalatedGrievances.map((grievance) => (
-                                        <tr key={grievance._id}>
-                                            <td>{grievance.petitionId}</td>
-                                            <td>{grievance.title}</td>
-                                            <td>{grievance.department}</td>
-                                            <td>
-                                                <span className={`badge bg-${grievance.status === 'resolved' ? 'success' : 'warning'}`}>
-                                                    {grievance.status}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                {grievance.assignedTo ?
-                                                    `${grievance.assignedTo.firstName} ${grievance.assignedTo.lastName}` :
-                                                    'Unassigned'}
-                                            </td>
-                                            <td>{new Date(grievance.createdAt).toLocaleDateString()}</td>
-                                            <td>{new Date(grievance.escalatedAt).toLocaleDateString()}</td>
-                                            <td>
-                                                {Math.floor((new Date() - new Date(grievance.escalatedAt)) / (1000 * 60 * 60 * 24))}
-                                            </td>
-                                            <td>{grievance.escalationReason}</td>
-                                            <td>
-                                                <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        setSelectedGrievance(grievance);
-                                                        setShowResponseModal(true);
-                                                    }}
-                                                >
-                                                    Respond
-                                                </Button>
-                                            </td>
+                            {escalatedError ? (
+                                <div className="alert alert-danger" role="alert">
+                                    <AlertTriangle size={18} className="me-2" />
+                                    {escalatedError}
+                                </div>
+                            ) : escalatedLoading ? (
+                                <div className="text-center py-4">
+                                    <div className="spinner-border text-primary" role="status">
+                                        <span className="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            ) : escalatedGrievances.length === 0 ? (
+                                <div className="text-center py-4 text-muted">
+                                    No escalated grievances found
+                                </div>
+                            ) : (
+                                <Table responsive>
+                                    <thead>
+                                        <tr>
+                                            <th>Grievance ID</th>
+                                            <th>Title</th>
+                                            <th>Department</th>
+                                            <th>Status</th>
+                                            <th>Priority</th>
+                                            <th>Assigned Official</th>
+                                            <th>Created At</th>
+                                            <th>Escalated At</th>
+                                            <th>Days Since Escalation</th>
+                                            <th>Escalation Reason</th>
+                                            <th>Action</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </Table>
+                                    </thead>
+                                    <tbody>
+                                        {escalatedGrievances.map((grievance) => (
+                                            <tr key={grievance._id}>
+                                                <td>{grievance.petitionId || 'N/A'}</td>
+                                                <td>
+                                                    <div className="text-truncate" style={{ maxWidth: '200px' }} title={grievance.title}>
+                                                        {grievance.title || 'No Title'}
+                                                    </div>
+                                                </td>
+                                                <td>{grievance.department || 'Unassigned'}</td>
+                                                <td>
+                                                    <span className={`badge bg-${getStatusBadgeClass(grievance.status)}`}>
+                                                        {grievance.status ? grievance.status.charAt(0).toUpperCase() + grievance.status.slice(1) : 'Unknown'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span className={`badge bg-${getPriorityBadgeClass(grievance.priority)}`}>
+                                                        {grievance.priority || 'Not Set'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    {grievance.assignedTo ?
+                                                        `${grievance.assignedTo.firstName || ''} ${grievance.assignedTo.lastName || ''}`.trim() || 'Unnamed' :
+                                                        'Unassigned'
+                                                    }
+                                                </td>
+                                                <td>{grievance.createdAt ? new Date(grievance.createdAt).toLocaleDateString() : 'N/A'}</td>
+                                                <td>{grievance.escalatedAt ? new Date(grievance.escalatedAt).toLocaleDateString() : 'N/A'}</td>
+                                                <td>
+                                                    {grievance.escalatedAt ?
+                                                        Math.floor((new Date() - new Date(grievance.escalatedAt)) / (1000 * 60 * 60 * 24)) :
+                                                        'N/A'
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <div className="text-truncate" style={{ maxWidth: '200px' }} title={grievance.escalationReason}>
+                                                        {grievance.escalationReason || 'No reason provided'}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <Button
+                                                        variant="primary"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setSelectedGrievance(grievance);
+                                                            setShowResponseModal(true);
+                                                        }}
+                                                    >
+                                                        Respond
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </Table>
+                            )}
                         </Card.Body>
                     </Card>
                 );
