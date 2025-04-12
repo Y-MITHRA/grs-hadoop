@@ -5,6 +5,7 @@ import { generateToken } from '../middleware/auth.js';
 import { getResourceManagementData } from '../controllers/authController.js';
 import { auth } from '../middleware/auth.js';
 import Official from '../models/Official.js';
+import Grievance from '../models/Grievance.js';
 
 const router = express.Router();
 
@@ -125,6 +126,143 @@ router.get('/officials', auth, async (req, res) => {
     } catch (error) {
         console.error('Error fetching officials:', error);
         res.status(500).json({ error: 'Failed to fetch officials' });
+    }
+});
+
+// Get department statistics
+router.get('/department-stats', auth, async (req, res) => {
+    try {
+        const departments = ['Water', 'RTO', 'Electricity'];
+        const departmentStats = [];
+
+        for (const department of departments) {
+            const stats = {
+                department,
+                resolved: await Grievance.countDocuments({ department, status: 'resolved' }),
+                pending: await Grievance.countDocuments({ department, status: 'pending' }),
+                inProgress: await Grievance.countDocuments({ department, status: 'in-progress' })
+            };
+            departmentStats.push(stats);
+        }
+
+        res.json({ departmentStats });
+    } catch (error) {
+        console.error('Error fetching department statistics:', error);
+        res.status(500).json({ message: 'Error fetching department statistics' });
+    }
+});
+
+// Get monthly statistics
+router.get('/monthly-stats', auth, async (req, res) => {
+    try {
+        const monthlyStats = [];
+        const currentDate = new Date();
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        // Get stats for the last 6 months
+        for (let i = 5; i >= 0; i--) {
+            const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+            const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - i + 1, 0);
+
+            const total = await Grievance.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate }
+            });
+
+            const resolved = await Grievance.countDocuments({
+                createdAt: { $gte: startDate, $lte: endDate },
+                status: 'resolved'
+            });
+
+            monthlyStats.push({
+                month: months[startDate.getMonth()],
+                total,
+                resolved
+            });
+        }
+
+        res.json({ monthlyStats });
+    } catch (error) {
+        console.error('Error fetching monthly statistics:', error);
+        res.status(500).json({ message: 'Error fetching monthly statistics' });
+    }
+});
+
+// Get quick statistics
+router.get('/quick-stats', auth, async (req, res) => {
+    try {
+        const totalCases = await Grievance.countDocuments();
+        const activeCases = await Grievance.countDocuments({
+            status: { $in: ['pending', 'assigned', 'in-progress'] }
+        });
+        const resolvedCases = await Grievance.countDocuments({ status: 'resolved' });
+        const departments = ['Water', 'RTO', 'Electricity'].length;
+
+        // Calculate trends (comparing with last month)
+        const lastMonthStart = new Date();
+        lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+        lastMonthStart.setDate(1);
+        const lastMonthEnd = new Date();
+        lastMonthEnd.setDate(0);
+
+        const thisMonthStart = new Date();
+        thisMonthStart.setDate(1);
+        const thisMonthEnd = new Date();
+
+        const lastMonthTotal = await Grievance.countDocuments({
+            createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+        });
+        const thisMonthTotal = await Grievance.countDocuments({
+            createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd }
+        });
+
+        const lastMonthActive = await Grievance.countDocuments({
+            status: { $in: ['pending', 'assigned', 'in-progress'] },
+            createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+        });
+        const thisMonthActive = await Grievance.countDocuments({
+            status: { $in: ['pending', 'assigned', 'in-progress'] },
+            createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd }
+        });
+
+        const lastMonthResolved = await Grievance.countDocuments({
+            status: 'resolved',
+            createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd }
+        });
+        const thisMonthResolved = await Grievance.countDocuments({
+            status: 'resolved',
+            createdAt: { $gte: thisMonthStart, $lte: thisMonthEnd }
+        });
+
+        // Calculate percentage changes
+        const calculateTrend = (current, previous) => {
+            if (previous === 0) return current > 0 ? '+100%' : '0%';
+            const change = ((current - previous) / previous) * 100;
+            return change > 0 ? `+${change.toFixed(1)}%` : `${change.toFixed(1)}%`;
+        };
+
+        const stats = {
+            totalCases: {
+                value: totalCases,
+                trend: calculateTrend(thisMonthTotal, lastMonthTotal)
+            },
+            activeCases: {
+                value: activeCases,
+                trend: calculateTrend(thisMonthActive, lastMonthActive)
+            },
+            resolvedCases: {
+                value: resolvedCases,
+                trend: calculateTrend(thisMonthResolved, lastMonthResolved)
+            },
+            departments: {
+                value: departments,
+                trend: 'Stable'
+            }
+        };
+
+        res.json(stats);
+    } catch (error) {
+        console.error('Error fetching quick statistics:', error);
+        res.status(500).json({ message: 'Error fetching quick statistics' });
     }
 });
 

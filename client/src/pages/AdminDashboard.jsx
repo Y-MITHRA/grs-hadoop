@@ -24,60 +24,23 @@ const AdminDashboard = () => {
     const [officials, setOfficials] = useState([]);
     const [escalatedLoading, setEscalatedLoading] = useState(false);
     const [escalatedError, setEscalatedError] = useState(null);
-
-    // Mock statistics
-    const quickStats = [
-        { title: "Total Cases", value: "2,451", trend: "+12%" },
-        { title: "Active Cases", value: "342", trend: "+5%" },
-        { title: "Cases Resolved", value: "1,887", trend: "+8%" },
-        { title: "Departments", value: "15", trend: "Stable" },
-    ];
-
-    // Mock department performance data
-    const departmentData = [
-        { name: "Water", resolved: 45 },
-        { name: "RTO", resolved: 30 },
-        { name: "Electricity", resolved: 55 },
-        { name: "Hospital", resolved: 25 },
-        { name: "Road", resolved: 35 },
-    ];
-
-    // Mock monthly trends data
-    const monthlyTrends = [
-        { month: "Jan", cases: 65 },
-        { month: "Feb", cases: 75 },
-        { month: "Mar", cases: 55 },
-        { month: "Apr", cases: 85 },
-        { month: "May", cases: 95 },
-        { month: "Jun", cases: 75 },
-    ];
-
-    // Mock cases data
-    const cases = [
-        {
-            id: "CASE-001",
-            title: "Water Supply Issue",
-            department: "Water",
-            assignedTo: "John Smith",
-            status: "In Progress",
-            priority: "High",
-            lastUpdated: "2024-02-22",
-        },
-        {
-            id: "CASE-002",
-            title: "Road Maintenance",
-            department: "Road",
-            assignedTo: "Sarah Johnson",
-            status: "Pending",
-            priority: "Medium",
-            lastUpdated: "2024-02-21",
-        },
-    ];
+    const [departmentStats, setDepartmentStats] = useState([]);
+    const [monthlyStats, setMonthlyStats] = useState([]);
+    const [dashboardLoading, setDashboardLoading] = useState(false);
+    const [dashboardError, setDashboardError] = useState(null);
+    const [quickStats, setQuickStats] = useState({
+        totalCases: { value: 0, trend: '0%' },
+        activeCases: { value: 0, trend: '0%' },
+        resolvedCases: { value: 0, trend: '0%' },
+        departments: { value: 0, trend: 'Stable' }
+    });
 
     useEffect(() => {
         console.log('Active tab changed to:', activeTab);
         if (activeTab === 'dashboard') {
             fetchResourceData();
+            fetchDashboardStats();
+            fetchQuickStats();
         } else if (activeTab === 'escalated') {
             fetchEscalatedGrievances();
             fetchOfficials();
@@ -170,6 +133,78 @@ const AdminDashboard = () => {
         }
     };
 
+    const fetchDashboardStats = async () => {
+        try {
+            setDashboardLoading(true);
+            setDashboardError(null);
+
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            // Fetch department performance data
+            const deptResponse = await fetch(`${API_URL}/admin/department-stats`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!deptResponse.ok) {
+                throw new Error('Failed to fetch department statistics');
+            }
+
+            const deptData = await deptResponse.json();
+            setDepartmentStats(deptData.departmentStats);
+
+            // Fetch monthly trends data
+            const monthlyResponse = await fetch(`${API_URL}/admin/monthly-stats`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!monthlyResponse.ok) {
+                throw new Error('Failed to fetch monthly statistics');
+            }
+
+            const monthlyData = await monthlyResponse.json();
+            setMonthlyStats(monthlyData.monthlyStats);
+
+        } catch (error) {
+            console.error('Error fetching dashboard statistics:', error);
+            setDashboardError('Failed to load dashboard statistics');
+            toast.error('Failed to load dashboard statistics');
+        } finally {
+            setDashboardLoading(false);
+        }
+    };
+
+    const fetchQuickStats = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('No authentication token found');
+            }
+
+            const response = await fetch(`${API_URL}/admin/quick-stats`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch quick statistics');
+            }
+
+            const data = await response.json();
+            setQuickStats(data);
+        } catch (error) {
+            console.error('Error fetching quick statistics:', error);
+            toast.error('Failed to load quick statistics');
+        }
+    };
+
     const handleRespondToEscalation = async () => {
         try {
             if (!escalationResponse.trim()) {
@@ -245,6 +280,65 @@ const AdminDashboard = () => {
         }
     };
 
+    const renderDashboardCharts = () => (
+        <Row className="mb-4">
+            <Col md={6}>
+                <Card className="p-3 shadow-sm">
+                    <h6>Department Performance</h6>
+                    {dashboardLoading ? (
+                        <div className="text-center py-4">
+                            <div className="spinner-border text-primary" role="status">
+                                <span className="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    ) : dashboardError ? (
+                        <div className="alert alert-danger">{dashboardError}</div>
+                    ) : (
+                        <BarChart
+                            width={500}
+                            height={300}
+                            data={departmentStats}
+                            margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                        >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="department" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="resolved" fill="#28a745" name="Resolved" barSize={50} />
+                            <Bar dataKey="pending" fill="#ffc107" name="Pending" barSize={50} />
+                            <Bar dataKey="inProgress" fill="#17a2b8" name="In Progress" barSize={50} />
+                        </BarChart>
+                    )}
+                </Card>
+            </Col>
+            <Col md={6}>
+                <Card className="p-3 shadow-sm">
+                    <h6>Monthly Trends</h6>
+                    {dashboardLoading ? (
+                        <div className="text-center py-4">
+                            <div className="spinner-border text-primary" role="status">
+                                <span className="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    ) : dashboardError ? (
+                        <div className="alert alert-danger">{dashboardError}</div>
+                    ) : (
+                        <LineChart width={400} height={250} data={monthlyStats}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="month" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="total" stroke="#007bff" name="Total Cases" />
+                            <Line type="monotone" dataKey="resolved" stroke="#28a745" name="Resolved Cases" />
+                        </LineChart>
+                    )}
+                </Card>
+            </Col>
+        </Row>
+    );
+
     const renderContent = () => {
         switch (activeTab) {
             case 'dashboard':
@@ -275,46 +369,44 @@ const AdminDashboard = () => {
 
                         {/* Quick Stats */}
                         <Row className="mb-4">
-                            {quickStats.map((stat, index) => (
-                                <Col md={3} key={index}>
-                                    <Card className="p-3 shadow-sm">
-                                        <h6 className="text-muted">{stat.title}</h6>
-                                        <h4>{stat.value}</h4>
-                                        <span className={`text-${stat.trend.includes("+") ? "success" : "muted"}`}>{stat.trend}</span>
-                                    </Card>
-                                </Col>
-                            ))}
+                            <Col md={3}>
+                                <Card className="p-3 shadow-sm">
+                                    <h6 className="text-muted">Total Cases</h6>
+                                    <h4>{quickStats.totalCases.value}</h4>
+                                    <span className={`text-${quickStats.totalCases.trend.includes("+") ? "success" : "muted"}`}>
+                                        {quickStats.totalCases.trend}
+                                    </span>
+                                </Card>
+                            </Col>
+                            <Col md={3}>
+                                <Card className="p-3 shadow-sm">
+                                    <h6 className="text-muted">Active Cases</h6>
+                                    <h4>{quickStats.activeCases.value}</h4>
+                                    <span className={`text-${quickStats.activeCases.trend.includes("+") ? "warning" : "muted"}`}>
+                                        {quickStats.activeCases.trend}
+                                    </span>
+                                </Card>
+                            </Col>
+                            <Col md={3}>
+                                <Card className="p-3 shadow-sm">
+                                    <h6 className="text-muted">Cases Resolved</h6>
+                                    <h4>{quickStats.resolvedCases.value}</h4>
+                                    <span className={`text-${quickStats.resolvedCases.trend.includes("+") ? "success" : "muted"}`}>
+                                        {quickStats.resolvedCases.trend}
+                                    </span>
+                                </Card>
+                            </Col>
+                            <Col md={3}>
+                                <Card className="p-3 shadow-sm">
+                                    <h6 className="text-muted">Departments</h6>
+                                    <h4>{quickStats.departments.value}</h4>
+                                    <span className="text-muted">{quickStats.departments.trend}</span>
+                                </Card>
+                            </Col>
                         </Row>
 
                         {/* Charts */}
-                        <Row className="mb-4">
-                            <Col md={6}>
-                                <Card className="p-3 shadow-sm">
-                                    <h6>Department Performance</h6>
-                                    <BarChart width={400} height={250} data={departmentData}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="name" />
-                                        <YAxis />
-                                        <Tooltip />
-                                        <Legend />
-                                        <Bar dataKey="resolved" fill="#007bff" />
-                                    </BarChart>
-                                </Card>
-                            </Col>
-                            <Col md={6}>
-                                <Card className="p-3 shadow-sm">
-                                    <h6>Monthly Trends</h6>
-                                    <LineChart width={400} height={250} data={monthlyTrends}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="month" />
-                                        <YAxis />
-                                        <Tooltip />
-                                        <Legend />
-                                        <Line type="monotone" dataKey="cases" stroke="#28a745" />
-                                    </LineChart>
-                                </Card>
-                            </Col>
-                        </Row>
+                        {renderDashboardCharts()}
 
                         {/* Resource Management Section */}
                         <Card className="shadow-sm mt-4">
