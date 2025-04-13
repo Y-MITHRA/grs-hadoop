@@ -80,7 +80,7 @@ const ResourceManagement = () => {
             }
 
             // Fetch detailed grievance information
-            const response = await fetch(`http://localhost:5000/api/grievances/department/${resource.department}/details/${resource.grievanceId}`, {
+            const response = await fetch(`http://localhost:5000/api/grievances/department/${resource.department}/details/${resource.petitionId}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -207,6 +207,9 @@ const ResourceManagement = () => {
                                 <tr>
                                     <th>ID</th>
                                     <th>Department</th>
+                                    <th>Taluk</th>
+                                    <th>Division</th>
+                                    <th>District</th>
                                     <th>Status</th>
                                     <th>Timeline</th>
                                     <th>Requirements</th>
@@ -219,10 +222,13 @@ const ResourceManagement = () => {
                             <tbody>
                                 {filteredData.map((resource) => (
                                     <tr key={resource._id}>
-                                        <td>{resource.grievanceId}</td>
+                                        <td>{resource.petitionId}</td>
                                         <td>
                                             <Badge bg="primary">{resource.department}</Badge>
                                         </td>
+                                        <td>{resource.taluk || 'N/A'}</td>
+                                        <td>{resource.division || 'N/A'}</td>
+                                        <td>{resource.district || 'N/A'}</td>
                                         <td>
                                             <Badge bg={resource.status === 'Completed' ? 'success' : 'warning'}>
                                                 {resource.status}
@@ -262,17 +268,16 @@ const ResourceManagement = () => {
                                 <div className="grievance-details">
                                     <div className="row">
                                         <div className="col-md-6">
-                                            <h5 className="mb-3">Basic Information</h5>
-                                            <p><strong>Grievance ID:</strong> {selectedResource.grievanceId}</p>
+                                            <h5 className="mb-3">Grievance Details</h5>
+                                            <p><strong>ID:</strong> {selectedResource.petitionId}</p>
                                             <p><strong>Title:</strong> {selectedResource.title}</p>
-                                            <p><strong>Department:</strong> {selectedResource.department}</p>
-                                            <p><strong>Status:</strong>
-                                                <Badge bg={selectedResource.resourceDetails?.status === 'Completed' ? 'success' : 'warning'} className="ms-2">
-                                                    {selectedResource.resourceDetails?.status}
-                                                </Badge>
-                                            </p>
                                             <p><strong>Description:</strong> {selectedResource.description}</p>
-                                            <p><strong>Location:</strong> {selectedResource.location}</p>
+                                            <p><strong>Department:</strong> {selectedResource.department}</p>
+                                            <p><strong>Taluk:</strong> {selectedResource.taluk || 'N/A'}</p>
+                                            <p><strong>Division:</strong> {selectedResource.division || 'N/A'}</p>
+                                            <p><strong>District:</strong> {selectedResource.district || 'N/A'}</p>
+                                            <p><strong>Status:</strong> {selectedResource.status}</p>
+                                            <p><strong>Priority:</strong> {selectedResource.priority}</p>
                                         </div>
                                         <div className="col-md-6">
                                             <h5 className="mb-3">Resource Details</h5>

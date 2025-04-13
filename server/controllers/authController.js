@@ -315,13 +315,16 @@ export const getResourceManagementData = async (req, res) => {
         const grievances = await Grievance.find({
             resourceManagement: { $exists: true }
         })
-            .select('department resourceManagement status petitionId')
+            .select('department resourceManagement status petitionId taluk division district')
             .lean();
 
         const resources = grievances.map(grievance => ({
             _id: grievance._id,
             department: grievance.department,
-            grievanceId: grievance.petitionId,
+            petitionId: grievance.petitionId,
+            taluk: grievance.taluk || 'N/A',
+            division: grievance.division || 'N/A',
+            district: grievance.district || 'N/A',
             startDate: grievance.resourceManagement?.startDate || new Date(),
             endDate: grievance.resourceManagement?.endDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             requirementsNeeded: grievance.resourceManagement?.requirementsNeeded || 'Not specified',

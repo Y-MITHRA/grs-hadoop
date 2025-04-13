@@ -486,6 +486,9 @@ const AdminDashboard = () => {
                                             <tr>
                                                 <th>Department</th>
                                                 <th>Grievance ID</th>
+                                                <th>Taluk</th>
+                                                <th>Division</th>
+                                                <th>District</th>
                                                 <th>Start Date</th>
                                                 <th>End Date</th>
                                                 <th>Requirements</th>
@@ -499,15 +502,18 @@ const AdminDashboard = () => {
                                             {resourceData.map((resource) => (
                                                 <tr key={resource._id}>
                                                     <td>{resource.department}</td>
-                                                    <td className="text-primary">{resource.grievanceId}</td>
+                                                    <td>{resource.petitionId}</td>
+                                                    <td>{resource.taluk || 'N/A'}</td>
+                                                    <td>{resource.division || 'N/A'}</td>
+                                                    <td>{resource.district || 'N/A'}</td>
                                                     <td>{new Date(resource.startDate).toLocaleDateString()}</td>
                                                     <td>{new Date(resource.endDate).toLocaleDateString()}</td>
                                                     <td>{resource.requirementsNeeded}</td>
-                                                    <td>₹{resource.fundsRequired}</td>
+                                                    <td>₹{resource.fundsRequired.toLocaleString()}</td>
                                                     <td>{resource.resourcesRequired}</td>
                                                     <td>{resource.manpowerNeeded}</td>
                                                     <td>
-                                                        <span className={`badge bg-${resource.status === 'Completed' ? 'success' : 'warning'}`}>
+                                                        <span className={`badge bg-${getStatusBadgeClass(resource.status)}`}>
                                                             {resource.status}
                                                         </span>
                                                     </td>
@@ -564,6 +570,9 @@ const AdminDashboard = () => {
                                             <th>Grievance ID</th>
                                             <th>Title</th>
                                             <th>Department</th>
+                                            <th>Taluk</th>
+                                            <th>Division</th>
+                                            <th>District</th>
                                             <th>Status</th>
                                             <th>Priority</th>
                                             <th>Assigned Official</th>
@@ -584,6 +593,9 @@ const AdminDashboard = () => {
                                                     </div>
                                                 </td>
                                                 <td>{grievance.department || 'Unassigned'}</td>
+                                                <td>{grievance.taluk || 'N/A'}</td>
+                                                <td>{grievance.division || 'N/A'}</td>
+                                                <td>{grievance.district || 'N/A'}</td>
                                                 <td>
                                                     <span className={`badge bg-${getStatusBadgeClass(grievance.status)}`}>
                                                         {grievance.status ? grievance.status.charAt(0).toUpperCase() + grievance.status.slice(1) : 'Unknown'}

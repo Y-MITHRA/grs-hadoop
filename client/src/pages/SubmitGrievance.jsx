@@ -5,6 +5,7 @@ import NavBar from '../components/NavBar';
 import Footer from '../shared/Footer';
 import { Upload, FileText, MapPin } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import LocationDropdowns from '../components/LocationDropdowns';
 
 const SubmitGrievance = () => {
     const navigate = useNavigate();
@@ -15,6 +16,9 @@ const SubmitGrievance = () => {
         department: '',
         description: '',
         location: '',
+        taluk: '',
+        district: '',
+        division: '',
         coordinates: null,
         attachments: []
     });
@@ -136,6 +140,15 @@ const SubmitGrievance = () => {
             if (!formData.location.trim()) {
                 newErrors.location = 'Location is required';
             }
+            if (!formData.taluk.trim()) {
+                newErrors.taluk = 'Taluk is required';
+            }
+            if (!formData.district.trim()) {
+                newErrors.district = 'District is required';
+            }
+            if (!formData.division.trim()) {
+                newErrors.division = 'Division is required';
+            }
         } else {
             if (!documentFile) {
                 newErrors.document = 'Please upload a document';
@@ -163,6 +176,9 @@ const SubmitGrievance = () => {
                     department: formData.department,
                     description: formData.description.trim(),
                     location: formData.location.trim(),
+                    taluk: formData.taluk,
+                    district: formData.district,
+                    division: formData.division,
                     coordinates: formData.coordinates
                 };
 
@@ -192,6 +208,9 @@ const SubmitGrievance = () => {
                         department: '',
                         description: '',
                         location: '',
+                        taluk: '',
+                        district: '',
+                        division: '',
                         coordinates: null,
                         attachments: []
                     });
@@ -211,11 +230,17 @@ const SubmitGrievance = () => {
                 formDataToSubmit.append('document', documentFile);
                 formDataToSubmit.append('department', formData.department);
                 formDataToSubmit.append('location', formData.location);
+                formDataToSubmit.append('taluk', formData.taluk);
+                formDataToSubmit.append('district', formData.district);
+                formDataToSubmit.append('division', formData.division);
                 formDataToSubmit.append('coordinates', JSON.stringify(formData.coordinates));
 
                 console.log('Submitting document with data:', {
                     department: formData.department,
                     location: formData.location,
+                    taluk: formData.taluk,
+                    district: formData.district,
+                    division: formData.division,
                     coordinates: formData.coordinates
                 });
 
@@ -238,6 +263,9 @@ const SubmitGrievance = () => {
                         department: '',
                         description: '',
                         location: '',
+                        taluk: '',
+                        district: '',
+                        division: '',
                         coordinates: null,
                         attachments: []
                     });
@@ -264,6 +292,15 @@ const SubmitGrievance = () => {
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    const handleLocationChange = ({ district, division, taluk }) => {
+        setFormData(prev => ({
+            ...prev,
+            district,
+            division,
+            taluk
+        }));
     };
 
     return (
@@ -390,6 +427,17 @@ const SubmitGrievance = () => {
                                                         ? `Coordinates: ${formData.coordinates.latitude}, ${formData.coordinates.longitude}`
                                                         : 'Click "Use Current Location" to automatically get your location'}
                                                 </div>
+                                            </div>
+
+                                            <div className="mb-3">
+                                                <LocationDropdowns
+                                                    onLocationChange={handleLocationChange}
+                                                    initialValues={{
+                                                        district: formData.district,
+                                                        division: formData.division,
+                                                        taluk: formData.taluk
+                                                    }}
+                                                />
                                             </div>
 
                                             <div className="mb-3">

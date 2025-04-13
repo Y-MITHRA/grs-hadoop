@@ -5,6 +5,7 @@ import NavBar from '../components/NavBar';
 import { FileText, ArrowLeft, MapPin } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
+import LocationDropdowns from '../components/LocationDropdowns';
 
 const OfficialRegistration = () => {
   const navigate = useNavigate();
@@ -21,6 +22,9 @@ const OfficialRegistration = () => {
     city: '',
     state: '',
     pincode: '',
+    taluk: '',
+    district: '',
+    division: '',
     officeCoordinates: {
       latitude: null,
       longitude: null
@@ -87,6 +91,15 @@ const OfficialRegistration = () => {
     });
   };
 
+  const handleLocationChange = ({ district, division, taluk }) => {
+    setFormData(prev => ({
+      ...prev,
+      district,
+      division,
+      taluk
+    }));
+  };
+
   const validateForm = () => {
     let tempErrors = {};
     let formIsValid = true;
@@ -129,6 +142,21 @@ const OfficialRegistration = () => {
 
     if (!formData.designation.trim()) {
       tempErrors.designation = 'Designation is required';
+      formIsValid = false;
+    }
+
+    if (!formData.taluk.trim()) {
+      tempErrors.taluk = 'Taluk is required';
+      formIsValid = false;
+    }
+
+    if (!formData.district.trim()) {
+      tempErrors.district = 'District is required';
+      formIsValid = false;
+    }
+
+    if (!formData.division.trim()) {
+      tempErrors.division = 'Division is required';
       formIsValid = false;
     }
 
@@ -298,6 +326,19 @@ const OfficialRegistration = () => {
                         onChange={handleChange}
                       />
                       {errors.designation && <div className="invalid-feedback">{errors.designation}</div>}
+                    </div>
+                  </div>
+
+                  <div className="row g-3 mt-1">
+                    <div className="col-12">
+                      <LocationDropdowns
+                        onLocationChange={handleLocationChange}
+                        initialValues={{
+                          district: formData.district,
+                          division: formData.division,
+                          taluk: formData.taluk
+                        }}
+                      />
                     </div>
                   </div>
 

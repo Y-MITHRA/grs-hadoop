@@ -109,9 +109,11 @@ const ChatComponent = ({ grievanceId, petitionerId, officialId }) => {
                 // Determine member IDs based on user role
                 let memberIds;
                 if (user.role === 'petitioner') {
-                    memberIds = [String(user.id), String(officialId)];
+                    // Ensure no duplicate IDs by using a Set
+                    memberIds = [...new Set([String(user.id), String(officialId)])];
                 } else {
-                    memberIds = [String(petitionerId), String(user.id)];
+                    // Ensure no duplicate IDs by using a Set
+                    memberIds = [...new Set([String(petitionerId), String(user.id)])];
                 }
                 console.log('Channel members:', memberIds);
 

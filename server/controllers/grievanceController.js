@@ -27,7 +27,10 @@ export const updateResourceManagement = async (req, res) => {
             requirementsNeeded,
             fundsRequired,
             resourcesRequired,
-            manpowerNeeded
+            manpowerNeeded,
+            taluk: grievance.taluk,
+            division: grievance.division,
+            district: grievance.district
         };
 
         // Update status to in-progress if not already
@@ -249,82 +252,76 @@ const analyzePriorityLocally = (grievance) => {
 // Update the createGrievance function's Gemini integration
 export const createGrievance = async (req, res) => {
     try {
-        const { title, description, department, location, coordinates } = req.body;
-        const petitioner = req.user.id;
-
-        // Initialize priority variables
-        let priority = 'Medium';
-        let priorityExplanation = 'Priority determined based on grievance content';
-        let impactAssessment = 'Impact assessment pending';
-        let recommendedResponseTime = 'Standard response time';
-
-        try {
-            if (!process.env.GEMINI_API_KEY) {
-                throw new Error('GEMINI_API_KEY is not configured');
-            }
-
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-            const prompt = {
-                contents: [{
-                    parts: [{
-                        text: `
-                            Analyze this grievance and determine its priority:
-                            Title: ${title}
-                            Description: ${description}
-                            Department: ${department}
-                            
-                            Respond in this exact format:
-                            PRIORITY: [High/Medium/Low]
-                            PRIORITY_EXPLANATION: [Brief explanation]
-                            IMPACT_ASSESSMENT: [Impact analysis]
-                            RECOMMENDED_RESPONSE_TIME: [Timeframe]
-                        `
-                    }]
-                }]
-            };
-
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            const priorityResponse = response.text();
-
-            const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
-            const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
-            const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
-            const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
-
-            if (priorityMatch) priority = priorityMatch[1].trim();
-            if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();
-            if (impactAssessmentMatch) impactAssessment = impactAssessmentMatch[1].trim();
-            if (recommendedResponseTimeMatch) recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
-
-        } catch (error) {
-            console.error('Error in Gemini processing:', error);
-            // Fallback to local priority analysis
-            const result = analyzePriorityLocally({ title, description, department });
-            priority = result.priority;
-            priorityExplanation = result.explanation;
-            impactAssessment = result.impactAssessment;
-            recommendedResponseTime = result.recommendedResponseTime;
-        }
-
-        // Create the grievance
-        const grievance = new Grievance({
+        const {
             title,
             description,
             department,
             location,
-            coordinates,
-            petitioner,
-            priority,
-            priorityExplanation,
-            impactAssessment,
-            recommendedResponseTime,
+            taluk,
+            district,
+            division,
+            coordinates
+        } = req.body;
+
+        // Validate required fields
+        if (!title || !description || !department || !location || !taluk || !district || !division) {
+            return res.status(400).json({
+                error: 'Missing required fields',
+                missingFields: {
+                    title: !title,
+                    description: !description,
+                    department: !department,
+                    location: !location,
+                    taluk: !taluk,
+                    district: !district,
+                    division: !division
+                }
+            });
+        }
+
+        // Validate department enum
+        if (!['Water', 'RTO', 'Electricity'].includes(department)) {
+            return res.status(400).json({
+                error: 'Invalid department',
+                message: 'Department must be one of: Water, RTO, Electricity'
+            });
+        }
+
+        // Find matching officials based on department, taluk, district, and division
+        const matchingOfficials = await Official.find({
+            department,
+            taluk,
+            district,
+            division
+        });
+
+        if (!matchingOfficials.length) {
+            return res.status(404).json({
+                error: 'No officials found in the specified taluk, district, and division'
+            });
+        }
+
+        // Create new grievance with all required fields
+        const grievance = new Grievance({
+            title: title.trim(),
+            description: description.trim(),
+            department,
+            location: location.trim(),
+            taluk: taluk.trim(),
+            district: district.trim(),
+            division: division.trim(),
+            coordinates: coordinates || null,
+            petitioner: req.user.id,
+            assignedOfficials: matchingOfficials.map(official => official._id),
             status: 'pending',
+            portal_type: 'GRS',
+            priority: 'Medium', // Default priority
+            priorityExplanation: 'Initial priority set to Medium',
+            impactAssessment: 'Impact assessment pending',
+            recommendedResponseTime: 'Standard response time',
             statusHistory: [{
                 status: 'pending',
-                updatedBy: petitioner,
+                updatedBy: req.user.id,
                 updatedByType: 'petitioner',
                 comment: 'Grievance submitted'
             }]
@@ -332,15 +329,27 @@ export const createGrievance = async (req, res) => {
 
         await grievance.save();
 
+        // Notify all matching officials
+        for (const official of matchingOfficials) {
+            await Notification.create({
+                recipient: official._id,
+                recipientModel: 'Official',
+                title: 'New Grievance Assignment',
+                message: `A new grievance has been submitted in your jurisdiction (${taluk}, ${district}, ${division}). Please review and accept if you can handle it.`,
+                type: 'GRIEVANCE_ASSIGNED',
+                grievanceId: grievance._id
+            });
+        }
+
         res.status(201).json({
             message: 'Grievance created successfully',
             grievance
         });
     } catch (error) {
         console.error('Error creating grievance:', error);
-        res.status(500).json({
+        res.status(500).json({ 
             error: 'Failed to create grievance',
-            details: error.message
+            details: error.message 
         });
     }
 };
@@ -357,8 +366,20 @@ export const getDepartmentGrievances = async (req, res) => {
             officialId
         });
 
-        // Build query
-        const query = { department };
+        // First get the official's details to get their jurisdiction
+        const official = await Official.findById(officialId);
+        if (!official) {
+            return res.status(404).json({ error: 'Official not found' });
+        }
+
+        // Build query with jurisdiction
+        const query = { 
+            department,
+            taluk: official.taluk,
+            district: official.district,
+            division: official.division
+        };
+
         if (status === 'pending') {
             query.status = 'pending';
             query.assignedTo = null;
@@ -384,9 +405,16 @@ export const getDepartmentGrievances = async (req, res) => {
 
         console.log('Found grievances:', grievances.length);
 
-        // Get stats
+        // Get stats for the official's jurisdiction
         const stats = await Grievance.aggregate([
-            { $match: { department } },
+            { 
+                $match: { 
+                    department,
+                    taluk: official.taluk,
+                    district: official.district,
+                    division: official.division
+                } 
+            },
             {
                 $group: {
                     _id: '$status',
@@ -411,8 +439,6 @@ export const getDepartmentGrievances = async (req, res) => {
             if (stat._id === 'in-progress') formattedStats.inProgress = stat.count;
             if (stat._id === 'resolved') formattedStats.resolved = stat.count;
         });
-
-        console.log('Formatted stats:', formattedStats);
 
         res.json({
             grievances,
@@ -1555,7 +1581,7 @@ export const analyzePriorityWithGemini = async (req, res) => {
 
             const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({
-                model: "gemini-pro",
+                model: "gemini-1.0-pro",
                 generationConfig: {
                     temperature: 0.7,
                     topK: 40,

@@ -52,13 +52,6 @@ const ElectricityDashboard = () => {
     description: ''
   });
 
-  // Add filteredGrievances computation
-  const filteredGrievances = grievances[activeTab].filter(grievance =>
-    grievance.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    grievance.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    grievance.grievanceId.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const getStatusBadgeClass = (status) => {
     switch (status?.toLowerCase()) {
       case 'pending':
@@ -87,71 +80,73 @@ const ElectricityDashboard = () => {
     }
   };
 
-  const analyzePriorityLocally = (grievance) => {
-    const description = grievance.description?.toLowerCase() || '';
-    const title = grievance.title?.toLowerCase() || '';
-    const combinedText = `${title} ${description}`;
-
-    // Keywords indicating high priority for Electricity department
-    const highPriorityKeywords = [
-      'live wire', 'electrocution', 'fire', 'power outage', 'transformer explosion',
-      'electric shock', 'short circuit', 'sparking', 'fallen wire', 'emergency',
-      'hospital power', 'school power', 'dangerous', 'exposed wire', 'burning smell',
-      'smoke', 'power failure', 'blackout', 'electrical fire', 'public safety'
-    ];
-
-    // Keywords indicating medium priority
-    const mediumPriorityKeywords = [
-      'voltage fluctuation', 'power surge', 'frequent outages', 'meter issue',
-      'connection problem', 'billing error', 'transformer noise', 'maintenance',
-      'street light', 'power quality', 'electrical connection', 'meter reading',
-      'power supply', 'electrical repair', 'installation'
-    ];
-
-    // Count matches for better accuracy
-    const highPriorityMatches = highPriorityKeywords.filter(keyword =>
-      combinedText.includes(keyword)
-    ).length;
-
-    const mediumPriorityMatches = mediumPriorityKeywords.filter(keyword =>
-      combinedText.includes(keyword)
-    ).length;
-
-    // Determine priority based on keyword matches
-    if (highPriorityMatches > 0) {
-      return {
-        priority: 'High',
-        explanation: 'This grievance requires immediate attention due to electrical hazards or critical service disruption.',
-        impactAssessment: 'High impact on public safety and electrical infrastructure. Immediate action required.',
-        recommendedResponseTime: '24 hours'
-      };
-    } else if (mediumPriorityMatches > 0) {
-      return {
-        priority: 'Medium',
-        explanation: 'This grievance needs attention but is not critical.',
-        impactAssessment: 'Moderate impact on electrical services. Action required within standard timeframe.',
-        recommendedResponseTime: '3-5 working days'
-      };
-    } else {
-      return {
-        priority: 'Low',
-        explanation: 'This is a routine grievance that can be handled through standard procedures.',
-        impactAssessment: 'Limited impact on electrical services. Can be addressed through regular maintenance.',
-        recommendedResponseTime: '7-10 working days'
-      };
-    }
-  };
-
   useEffect(() => {
     if (!user) {
       navigate('/login');
       return;
     }
 
+    // Set user info
     setEmployeeId(user.id);
     setEmail(user.email);
+
+    // Fetch initial data
     fetchGrievances();
   }, [user, activeTab]);
+
+  const analyzePriorityLocally = (grievance) => {
+    const description = grievance.description?.toLowerCase() || '';
+    const title = grievance.title?.toLowerCase() || '';
+
+    // Keywords indicating high priority for Electricity department
+    const highPriorityKeywords = [
+      'urgent', 'emergency', 'immediate', 'critical', 'severe', 'dangerous',
+      'power outage', 'blackout', 'electrical fire', 'spark', 'short circuit',
+      'electrocution', 'dangerous wiring', 'exposed wire', 'live wire',
+      'transformer failure', 'substation issue', 'grid failure', 'safety hazard'
+    ];
+
+    // Keywords indicating medium priority
+    const mediumPriorityKeywords = [
+      'important', 'moderate', 'repair', 'fix', 'maintenance',
+      'billing issue', 'meter reading', 'connection request',
+      'voltage fluctuation', 'power quality', 'load shedding',
+      'transformer maintenance', 'line maintenance', 'cable work'
+    ];
+
+    // Check for high priority keywords
+    const hasHighPriority = highPriorityKeywords.some(keyword =>
+      description.includes(keyword) || title.includes(keyword)
+    );
+
+    // Check for medium priority keywords
+    const hasMediumPriority = mediumPriorityKeywords.some(keyword =>
+      description.includes(keyword) || title.includes(keyword)
+    );
+
+    if (hasHighPriority) {
+      return {
+        priority: 'High',
+        explanation: 'This grievance requires immediate attention due to potential safety hazards or critical power issues.',
+        impactAssessment: 'High impact on public safety and power supply. Immediate action required.',
+        recommendedResponseTime: '24-48 hours'
+      };
+    } else if (hasMediumPriority) {
+      return {
+        priority: 'Medium',
+        explanation: 'This grievance needs attention but is not critical.',
+        impactAssessment: 'Moderate impact on power services. Action required within standard timeframe.',
+        recommendedResponseTime: '3-5 working days'
+      };
+    } else {
+      return {
+        priority: 'Low',
+        explanation: 'This is a routine grievance that can be handled through standard procedures.',
+        impactAssessment: 'Limited impact on power services. Can be addressed through regular processing.',
+        recommendedResponseTime: '7-10 working days'
+      };
+    }
+  };
 
   const fetchGrievances = async () => {
     try {
@@ -179,22 +174,58 @@ const ElectricityDashboard = () => {
       }
 
       const data = await response.json();
-      const processedGrievances = data.grievances.map(grievance => {
-        // Analyze priority locally
-        const priorityData = analyzePriorityLocally(grievance);
 
-        return {
-          ...grievance,
-          grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
-          title: grievance.title || 'No Title',
-          description: grievance.description || 'No Description',
-          createdAt: grievance.createdAt || new Date().toISOString(),
-          priority: priorityData.priority,
-          priorityExplanation: priorityData.explanation,
-          impactAssessment: priorityData.impactAssessment,
-          recommendedResponseTime: priorityData.recommendedResponseTime
-        };
-      });
+      // Process grievances with priority analysis
+      const processedGrievances = await Promise.all(data.grievances.map(async (grievance) => {
+        try {
+          // Call Gemini AI for priority analysis
+          const priorityResponse = await fetch('http://localhost:5000/api/grievances/analyze-priority', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              title: grievance.title || '',
+              description: grievance.description || '',
+              department: 'Electricity'
+            })
+          });
+
+          if (!priorityResponse.ok) {
+            throw new Error('Failed to analyze priority');
+          }
+
+          const priorityData = await priorityResponse.json();
+          
+          return {
+            ...grievance,
+            grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
+            title: grievance.title || 'No Title',
+            description: grievance.description || 'No Description',
+            createdAt: grievance.createdAt || new Date().toISOString(),
+            priority: priorityData.priority,
+            priorityExplanation: priorityData.explanation,
+            impactAssessment: priorityData.impactAssessment,
+            recommendedResponseTime: priorityData.recommendedResponseTime
+          };
+        } catch (error) {
+          console.error('Error analyzing priority:', error);
+          // Fallback to local analysis if API fails
+          const localPriorityData = analyzePriorityLocally(grievance);
+          return {
+            ...grievance,
+            grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
+            title: grievance.title || 'No Title',
+            description: grievance.description || 'No Description',
+            createdAt: grievance.createdAt || new Date().toISOString(),
+            priority: localPriorityData.priority,
+            priorityExplanation: localPriorityData.explanation,
+            impactAssessment: localPriorityData.impactAssessment,
+            recommendedResponseTime: localPriorityData.recommendedResponseTime
+          };
+        }
+      }));
 
       setGrievances(prev => ({
         ...prev,
@@ -206,13 +237,13 @@ const ElectricityDashboard = () => {
       }
     } catch (error) {
       console.error('Error fetching grievances:', error);
-      setError('Failed to load grievances. Please try again later.');
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAccept = async (grievanceId) => {
+  const handleAcceptGrievance = async (grievanceId) => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -230,17 +261,20 @@ const ElectricityDashboard = () => {
         throw new Error('Failed to accept grievance');
       }
 
-      // Refresh data and switch to assigned tab
-      fetchGrievances();
-      setActiveTab('assigned');
       toast.success('Grievance accepted successfully');
+      fetchGrievances();
     } catch (error) {
       console.error('Error accepting grievance:', error);
-      toast.error(error.message || 'Failed to accept grievance');
+      toast.error('Failed to accept grievance');
     }
   };
 
-  const handleDecline = async (grievanceId) => {
+  const handleDeclineGrievance = async (grievanceId) => {
+    if (!declineReason.trim()) {
+      toast.error('Please provide a reason for declining');
+      return;
+    }
+
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -260,20 +294,122 @@ const ElectricityDashboard = () => {
         throw new Error('Failed to decline grievance');
       }
 
-      setShowDeclineModal(false);
-      setDeclineReason("");
       toast.success('Grievance declined successfully');
+      setShowDeclineModal(false);
+      setDeclineReason('');
       fetchGrievances();
     } catch (error) {
       console.error('Error declining grievance:', error);
-      toast.error(error.message || 'Failed to decline grievance');
+      toast.error('Failed to decline grievance');
     }
+  };
+
+  const handleStartProgress = async (grievanceId) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/start-progress`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ comment: 'Started working on the grievance' })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start progress');
+      }
+
+      toast.success('Progress started successfully');
+      fetchGrievances();
+    } catch (error) {
+      console.error('Error starting progress:', error);
+      toast.error('Failed to start progress');
+    }
+  };
+
+  const handleResolveGrievance = async (grievanceId) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.pdf,.jpg,.jpeg,.png';
+      fileInput.onchange = async (e) => {
+        try {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const formData = new FormData();
+          formData.append('document', file);
+
+          // First upload the document
+          const uploadResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/upload-resolution`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            body: formData
+          });
+
+          const uploadData = await uploadResponse.json();
+
+          if (!uploadResponse.ok) {
+            throw new Error(uploadData.error || 'Failed to upload resolution document');
+          }
+
+          // Then resolve the grievance
+          const resolveResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resolve`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              resolutionMessage: 'Grievance resolved with attached document'
+            })
+          });
+
+          const resolveData = await resolveResponse.json();
+
+          if (!resolveResponse.ok) {
+            throw new Error(resolveData.error || 'Failed to resolve grievance');
+          }
+
+          // Refresh the grievances list
+          fetchGrievances();
+          toast.success('Grievance resolved successfully');
+        } catch (error) {
+          console.error('Error in file upload:', error);
+          toast.error(error.message || 'Failed to upload and resolve grievance');
+        }
+      };
+
+      fileInput.click();
+    } catch (error) {
+      console.error('Error resolving grievance:', error);
+      toast.error(error.message || 'Failed to resolve grievance');
+    }
+  };
+
+  const handleViewChat = (grievance) => {
+    setSelectedGrievance(grievance);
+    setShowChat(true);
   };
 
   const handleResourceSubmit = async (grievanceId) => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) throw new Error('No authentication token found');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
 
       const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resource-management`, {
         method: 'POST',
@@ -284,18 +420,24 @@ const ElectricityDashboard = () => {
         body: JSON.stringify(resourceForm)
       });
 
-      if (!response.ok) throw new Error('Failed to submit resource management');
+      if (!response.ok) {
+        throw new Error('Failed to update resource management');
+      }
 
+      toast.success('Resource management updated successfully');
       setShowResourceModal(false);
-      toast.success('Resource management details submitted successfully');
-
-      // Automatically start progress after resource management submission
-      await handleStartProgress(grievanceId);
-
+      setResourceForm({
+        startDate: '',
+        endDate: '',
+        requirementsNeeded: '',
+        fundsRequired: '',
+        resourcesRequired: '',
+        manpowerNeeded: ''
+      });
       fetchGrievances();
     } catch (error) {
-      console.error('Error submitting resource management:', error);
-      toast.error('Failed to submit resource management details');
+      console.error('Error updating resource management:', error);
+      toast.error('Failed to update resource management');
     }
   };
 
@@ -322,107 +464,6 @@ const ElectricityDashboard = () => {
       console.error('Error updating timeline:', error);
       toast.error('Failed to update timeline');
     }
-  };
-
-  const handleStartProgress = async (grievanceId) => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/start-progress`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ comment: 'Starting progress on grievance' })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to start progress');
-      }
-
-      // Refresh data and switch to inProgress tab
-      fetchGrievances();
-      setActiveTab('inProgress');
-      toast.success('Started working on grievance');
-    } catch (error) {
-      console.error('Error starting progress:', error);
-      toast.error(error.message || 'Failed to start progress');
-    }
-  };
-
-  const handleResolve = async (grievanceId) => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.accept = '.pdf,.jpg,.jpeg,.png';
-      fileInput.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const formData = new FormData();
-        formData.append('document', file);
-
-        // First upload the document
-        const uploadResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/upload-resolution`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-          body: formData
-        });
-
-        if (!uploadResponse.ok) {
-          throw new Error('Failed to upload resolution document');
-        }
-
-        // Then resolve the grievance
-        const resolveResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resolve`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            resolution: 'Grievance resolved with attached document'
-          })
-        });
-
-        if (!resolveResponse.ok) {
-          throw new Error('Failed to resolve grievance');
-        }
-
-        // Refresh data and switch to resolved tab
-        fetchGrievances();
-        setActiveTab('resolved');
-        toast.success('Grievance resolved successfully');
-      };
-
-      fileInput.click();
-    } catch (error) {
-      console.error('Error resolving grievance:', error);
-      toast.error(error.message || 'Failed to resolve grievance');
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem("employeeId");
-    localStorage.removeItem("email");
-    localStorage.removeItem("token");
-    window.location.href = "/";
-  };
-
-  const handleViewChat = (grievance) => {
-    setSelectedGrievance(grievance);
-    setShowChat(true);
   };
 
   const renderDetailsModal = () => {
@@ -557,7 +598,7 @@ const ElectricityDashboard = () => {
           {activeTab === 'pending' && (
             <>
               <button
-                onClick={() => handleAccept(grievance._id)}
+                onClick={() => handleAcceptGrievance(grievance._id)}
                 className="btn btn-success"
               >
                 <FaCheck className="mr-2" /> Accept
@@ -596,7 +637,7 @@ const ElectricityDashboard = () => {
                 <FaClock className="mr-2" /> Update Timeline
               </button>
               <button
-                onClick={() => handleResolve(grievance._id)}
+                onClick={() => handleResolveGrievance(grievance._id)}
                 className="btn btn-success"
               >
                 <FaCheckCircle className="mr-2" /> Mark as Resolved
@@ -715,57 +756,241 @@ const ElectricityDashboard = () => {
           </div>
         </div>
 
-        {/* Grievances List */}
-        <div className="grievances-list">
-          {loading ? (
-            <div className="text-center p-4">
-              <div className="spinner-border text-primary" role="status">
-                <span className="visually-hidden">Loading...</span>
+        <div className="content-area">
+          <aside className="sidebar">
+            <div className="menu-item active">
+              <span className="icon">📋</span>
+              <span>Grievances</span>
+            </div>
+            <div className="menu-item">
+              <span className="icon">📊</span>
+              <span>Reports</span>
+            </div>
+            <div className="menu-item">
+              <span className="icon">⚙️</span>
+              <span>Settings</span>
+            </div>
+            <div className="menu-item" onClick={logout}>
+              <span className="icon">🚪</span>
+              <span>Logout</span>
+            </div>
+          </aside>
+
+          <main className="main-content">
+            <div className="page-header">
+              <h1>Grievances</h1>
+            </div>
+
+            <div className="tab-container">
+              <div className="tabs">
+                <button
+                  className={`tab ${activeTab === "pending" ? "active" : ""}`}
+                  onClick={() => setActiveTab("pending")}
+                >
+                  Pending
+                </button>
+                <button
+                  className={`tab ${activeTab === "assigned" ? "active" : ""}`}
+                  onClick={() => setActiveTab("assigned")}
+                >
+                  Assigned
+                </button>
+                <button
+                  className={`tab ${activeTab === "inProgress" ? "active" : ""}`}
+                  onClick={() => setActiveTab("inProgress")}
+                >
+                  In Progress
+                </button>
+                <button
+                  className={`tab ${activeTab === "resolved" ? "active" : ""}`}
+                  onClick={() => setActiveTab("resolved")}
+                >
+                  Resolved
+                </button>
+              </div>
+
+              <div className="grievances-list">
+                {loading ? (
+                  <div className="loading">Loading...</div>
+                ) : error ? (
+                  <div className="error">{error}</div>
+                ) : grievances[activeTab].length === 0 ? (
+                  <div className="no-grievances">No grievances found</div>
+                ) : (
+                  grievances[activeTab].map((grievance) => renderGrievanceCard(grievance))
+                )}
               </div>
             </div>
-          ) : error ? (
-            <div className="alert alert-danger">{error}</div>
-          ) : grievances[activeTab].length === 0 ? (
-            <div className="text-center p-4">
-              <p className="text-muted">No grievances found</p>
-            </div>
-          ) : (
-            <div className="row">
-              {grievances[activeTab].map(grievance => (
-                <div key={grievance._id} className="col-md-6 mb-3">
-                  <div className="card">
-                    <div className="card-body">
-                      <h5 className="card-title">{grievance.title}</h5>
-                      <p className="card-text">{grievance.description}</p>
-                      <div className="d-flex justify-content-between align-items-center">
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={() => setSelectedGrievance(grievance)}
-                        >
-                          <FaEye className="me-1" />
-                          View Details
-                        </button>
-                        {(activeTab === 'assigned' || activeTab === 'inProgress') && !grievance.isResolved && (
-                          <button
-                            className="btn btn-outline-primary btn-sm"
-                            onClick={() => {
-                              setSelectedGrievance(grievance);
-                              setShowChat(true);
-                            }}
-                          >
-                            <FaComments className="me-1" />
-                            Chat
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          </main>
+
+          {showDetails && renderDetailsModal()}
         </div>
       </div>
+
+      {/* Decline Modal */}
+      {showDeclineModal && selectedGrievance && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Decline Grievance</h3>
+            <p>Please provide a reason for declining this grievance:</p>
+            <textarea
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              className="form-control mb-3"
+              rows="4"
+              placeholder="Enter reason for declining..."
+            />
+            <div className="modal-actions">
+              <button
+                onClick={() => {
+                  setShowDeclineModal(false);
+                  setDeclineReason('');
+                }}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeclineGrievance(selectedGrievance._id)}
+                className="btn btn-danger"
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resource Modal */}
+      {showResourceModal && selectedGrievance && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Resource Management</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleResourceSubmit(selectedGrievance._id);
+            }}>
+              <div className="form-group">
+                <label>Start Date</label>
+                <input
+                  type="date"
+                  value={resourceForm.startDate}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, startDate: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>End Date</label>
+                <input
+                  type="date"
+                  value={resourceForm.endDate}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, endDate: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Requirements Needed</label>
+                <textarea
+                  value={resourceForm.requirementsNeeded}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, requirementsNeeded: e.target.value }))}
+                  required
+                  placeholder="List all requirements"
+                />
+              </div>
+              <div className="form-group">
+                <label>Funds Required (₹)</label>
+                <input
+                  type="number"
+                  value={resourceForm.fundsRequired}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, fundsRequired: e.target.value }))}
+                  required
+                  min="0"
+                />
+              </div>
+              <div className="form-group">
+                <label>Resources Required</label>
+                <textarea
+                  value={resourceForm.resourcesRequired}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, resourcesRequired: e.target.value }))}
+                  required
+                  placeholder="List all resources"
+                />
+              </div>
+              <div className="form-group">
+                <label>Manpower Needed</label>
+                <input
+                  type="number"
+                  value={resourceForm.manpowerNeeded}
+                  onChange={(e) => setResourceForm(prev => ({ ...prev, manpowerNeeded: e.target.value }))}
+                  required
+                  min="0"
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowResourceModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Submit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Timeline Modal */}
+      {showTimelineModal && selectedGrievance && (
+        <div className="modal">
+          <div className="modal-content">
+            <h3>Update Timeline</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              handleTimelineSubmit(selectedGrievance._id);
+            }}>
+              <div className="form-group">
+                <label>Stage</label>
+                <select
+                  value={timelineForm.stageName}
+                  onChange={(e) => setTimelineForm(prev => ({ ...prev, stageName: e.target.value }))}
+                  required
+                >
+                  <option value="">Select Stage</option>
+                  <option value="Under Review">Under Review</option>
+                  <option value="Investigation">Investigation</option>
+                  <option value="Resolution">Resolution</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Date</label>
+                <input
+                  type="date"
+                  value={timelineForm.date}
+                  onChange={(e) => setTimelineForm(prev => ({ ...prev, date: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={timelineForm.description}
+                  onChange={(e) => setTimelineForm(prev => ({ ...prev, description: e.target.value }))}
+                  required
+                  placeholder="Example: Gathered evidence from site visit"
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowTimelineModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Save Stage
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Chat Modal */}
       {showChat && selectedGrievance && (
@@ -774,7 +999,7 @@ const ElectricityDashboard = () => {
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">
-                  Chat - Grievance {selectedGrievance._id}
+                  Chat - Grievance {selectedGrievance.grievanceId}
                 </h5>
                 <button
                   type="button"
@@ -788,188 +1013,11 @@ const ElectricityDashboard = () => {
               <div className="modal-body" style={{ height: '500px', padding: 0 }}>
                 <ChatComponent
                   grievanceId={selectedGrievance._id}
-                  petitionerId={selectedGrievance.petitioner}
-                  officialId={employeeId}
+                  petitionerId={selectedGrievance.petitioner?._id || selectedGrievance.petitioner}
+                  officialId={user.id}
                 />
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showDetails && renderDetailsModal()}
-
-      {showDeclineModal && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Decline Grievance</h3>
-            <textarea
-              placeholder="Enter reason for declining..."
-              value={declineReason}
-              onChange={(e) => setDeclineReason(e.target.value)}
-            />
-            <div className="modal-actions">
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  setShowDeclineModal(false);
-                  setDeclineReason("");
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => handleDecline(selectedGrievance._id)}
-                disabled={!declineReason.trim()}
-              >
-                Decline
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showResourceModal && selectedGrievance && (
-        <div className="modal">
-          <div className="modal-content resource-modal">
-            <div className="modal-header">
-              <h2>Resource Management</h2>
-              <button className="btn-close" onClick={() => setShowResourceModal(false)}>×</button>
-            </div>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              handleResourceSubmit(selectedGrievance._id);
-            }}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label>Start Date</label>
-                  <input
-                    type="date"
-                    value={resourceForm.startDate}
-                    onChange={(e) => setResourceForm(prev => ({ ...prev, startDate: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>End Date</label>
-                  <input
-                    type="date"
-                    value={resourceForm.endDate}
-                    onChange={(e) => setResourceForm(prev => ({ ...prev, endDate: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Requirements Needed</label>
-                  <textarea
-                    value={resourceForm.requirementsNeeded}
-                    onChange={(e) => setResourceForm(prev => ({ ...prev, requirementsNeeded: e.target.value }))}
-                    required
-                    placeholder="List all requirements for this grievance"
-                  />
-                  <div className="resource-hint">Specify all materials, equipment, and other requirements</div>
-                </div>
-                <div className="form-group">
-                  <label>Funds Required (₹)</label>
-                  <input
-                    type="number"
-                    value={resourceForm.fundsRequired}
-                    onChange={(e) => setResourceForm(prev => ({ ...prev, fundsRequired: e.target.value }))}
-                    required
-                    min="0"
-                    step="100"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Resources Required</label>
-                  <textarea
-                    value={resourceForm.resourcesRequired}
-                    onChange={(e) => setResourceForm(prev => ({ ...prev, resourcesRequired: e.target.value }))}
-                    required
-                    placeholder="List all resources needed"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Manpower Needed</label>
-                  <input
-                    type="number"
-                    value={resourceForm.manpowerNeeded}
-                    onChange={(e) => setResourceForm(prev => ({ ...prev, manpowerNeeded: e.target.value }))}
-                    required
-                    min="1"
-                  />
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowResourceModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Submit
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showTimelineModal && selectedGrievance && (
-        <div className="modal">
-          <div className="modal-content timeline-modal">
-            <div className="modal-header">
-              <h2>Update Timeline</h2>
-              <button className="btn-close" onClick={() => setShowTimelineModal(false)}>×</button>
-            </div>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              handleTimelineSubmit(selectedGrievance._id);
-            }}>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label>Stage</label>
-                  <select
-                    value={timelineForm.stageName}
-                    onChange={(e) => setTimelineForm(prev => ({ ...prev, stageName: e.target.value }))}
-                    required
-                  >
-                    <option value="">Select Stage</option>
-                    <option value="Under Review">Under Review</option>
-                    <option value="Investigation">Investigation</option>
-                    <option value="Resolution">Resolution</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label>Date</label>
-                  <input
-                    type="date"
-                    value={timelineForm.date}
-                    onChange={(e) => setTimelineForm(prev => ({ ...prev, date: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Description</label>
-                  <textarea
-                    value={timelineForm.description}
-                    onChange={(e) => setTimelineForm(prev => ({ ...prev, description: e.target.value }))}
-                    required
-                    placeholder="Describe the current stage progress"
-                  />
-                  <div className="timeline-description">
-                    Example: "Conducted site inspection and collected evidence"
-                  </div>
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowTimelineModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Stage
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

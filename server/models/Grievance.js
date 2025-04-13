@@ -73,6 +73,18 @@ const resourceManagementSchema = new mongoose.Schema({
     manpowerNeeded: {
         type: Number,
         required: true
+    },
+    taluk: {
+        type: String,
+        required: true
+    },
+    division: {
+        type: String,
+        required: true
+    },
+    district: {
+        type: String,
+        required: true
     }
 });
 
@@ -123,6 +135,21 @@ const grievanceSchema = new mongoose.Schema({
         enum: ['Water', 'RTO', 'Electricity']
     },
     location: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    taluk: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    district: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    division: {
         type: String,
         required: true,
         trim: true

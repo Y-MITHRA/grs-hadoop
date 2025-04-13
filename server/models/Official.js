@@ -16,6 +16,9 @@ const officialSchema = new mongoose.Schema({
     city: { type: String, required: true, trim: true },
     state: { type: String, required: true, trim: true },
     pincode: { type: String, required: true, match: /^[0-9]{6}$/ },
+    taluk: { type: String, required: true, trim: true },
+    district: { type: String, required: true, trim: true },
+    division: { type: String, required: true, trim: true },
     officeCoordinates: {
         latitude: { type: Number, required: true },
         longitude: { type: Number, required: true }
