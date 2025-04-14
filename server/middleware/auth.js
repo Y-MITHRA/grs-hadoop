@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import Petitioner from '../models/Petitioner.js';
 import Official from '../models/Official.js';
 import Admin from '../models/Admin.js';
+import { JWT_SECRET, JWT_OPTIONS } from '../config/jwt.js';
 import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -13,11 +14,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Configure dotenv to look for .env file in the server root directory
-dotenv.config({ path: path.join(dirname(__dirname), '.env') });
-
-// Use the same secret as the client
-const JWT_SECRET = 'your-secret-key';
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 export const generateToken = (user) => {
     if (!user || !user._id) {
@@ -30,12 +27,12 @@ export const generateToken = (user) => {
         exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
     };
 
-    return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256' });
+    return jwt.sign(payload, JWT_SECRET, JWT_OPTIONS);
 };
 
 export const verifyToken = (token) => {
     try {
-        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+        const decoded = jwt.verify(token, JWT_SECRET, JWT_OPTIONS);
         return {
             ...decoded,
             id: decoded.id.toString(),
@@ -85,7 +82,7 @@ export const auth = async (req, res, next) => {
         }
 
         // Now verify the token
-        const verified = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+        const verified = jwt.verify(token, JWT_SECRET, JWT_OPTIONS);
 
         // Look up user based on role and ID
         let user;

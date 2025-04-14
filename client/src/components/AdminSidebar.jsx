@@ -1,9 +1,9 @@
 import React from 'react';
 import { Nav } from 'react-bootstrap';
-import { LayoutDashboard, AlertTriangle, Database, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, AlertTriangle, Database, Settings, LogOut, MessageSquare } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const AdminSidebar = ({ activeTab }) => {
+const AdminSidebar = ({ activeTab, onTabChange }) => {
     const navigate = useNavigate();
 
     const handleNavigation = (path) => {
@@ -19,6 +19,9 @@ const AdminSidebar = ({ activeTab }) => {
                 break;
             case 'settings':
                 navigate('/admin/settings');
+                break;
+            case 'smart-query':
+                navigate('/admin/smart-query');
                 break;
             default:
                 navigate('/admin/dashboard');
@@ -63,6 +66,15 @@ const AdminSidebar = ({ activeTab }) => {
                 >
                     <Database size={20} className="me-2" />
                     <span>Resource Management</span>
+                </Nav.Link>
+
+                <Nav.Link
+                    onClick={() => handleNavigation('smart-query')}
+                    className={`d-flex align-items-center px-3 py-2 mb-1 ${activeTab === 'smart-query' ? 'active bg-primary' : 'text-white-50'}`}
+                    style={{ cursor: 'pointer' }}
+                >
+                    <MessageSquare size={20} className="me-2" />
+                    <span>Smart Query</span>
                 </Nav.Link>
 
                 <Nav.Link

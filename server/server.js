@@ -18,6 +18,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cron from 'node-cron';
 import { checkEligibleEscalations } from './controllers/grievanceController.js';
+import smartQueryRouter from './routes/smartQuery.js';
 
 // Get the directory name of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -73,12 +74,13 @@ app.use('/uploads', express.static('uploads')); // Serve uploaded files
 
 // Routes
 app.use('/api', registrationRoutes);
-app.use('/api', authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/petitioner', petitionerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/grievances', grievanceRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/smart-query', smartQueryRouter);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

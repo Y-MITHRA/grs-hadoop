@@ -200,33 +200,45 @@ const NotificationBell = ({ userId, userRole }) => {
                                 <span className="visually-hidden">Loading...</span>
                             </div>
                         </div>
-                    ) : !notifications || notifications.length === 0 ? (
+                    ) : notifications.length === 0 ? (
                         <div className="p-3 text-center text-muted">
                             No notifications
                         </div>
                     ) : (
-                        notifications.map(notification => (
-                            <Dropdown.Item
-                                key={notification._id}
-                                className={`border-bottom p-2 ${!notification.read ? 'bg-light' : ''}`}
-                                onClick={() => handleNotificationClick(notification)}
-                            >
-                                <div className="d-flex flex-column">
-                                    <div className="d-flex justify-content-between align-items-start">
-                                        <strong className="mb-1">{notification.title || notification.type}</strong>
-                                        <Badge bg={getNotificationStyle(notification.type)} className="ms-2">
-                                            {notification.type.split('_').join(' ')}
-                                        </Badge>
+                        <div>
+                            {notifications.map((notification) => (
+                                <div
+                                    key={notification._id}
+                                    className={`notification-item p-2 border-bottom ${!notification.read ? 'bg-light' : ''}`}
+                                    onClick={() => handleNotificationClick(notification)}
+                                    style={{ cursor: 'pointer' }}
+                                >
+                                    <div className="d-flex justify-content-between align-items-start mb-1">
+                                        <div>
+                                            <Badge bg={getNotificationStyle(notification.type)} className="me-2">
+                                                {notification.type}
+                                            </Badge>
+                                            {notification.grievanceId?.petitionId && (
+                                                <Badge bg="info" className="me-2">
+                                                    ID: {notification.grievanceId.petitionId}
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        <small className="text-muted">
+                                            {getRelativeTime(notification.createdAt)}
+                                        </small>
                                     </div>
-                                    <p className="mb-1 text-wrap" style={{ fontSize: '0.9rem' }}>
+                                    <div className="notification-message">
                                         {notification.message}
-                                    </p>
-                                    <small className="text-muted">
-                                        {getRelativeTime(notification.createdAt)}
-                                    </small>
+                                    </div>
+                                    <div className="mt-1">
+                                        <small className="text-muted">
+                                            Notification ID: {notification._id}
+                                        </small>
+                                    </div>
                                 </div>
-                            </Dropdown.Item>
-                        ))
+                            ))}
+                        </div>
                     )}
                 </Dropdown.Menu>
             </Dropdown>

@@ -1,17 +1,20 @@
 import React, { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import Footer from "../shared/Footer";
 import NavBar from "../components/NavBar";
 import AdminSidebar from '../components/AdminSidebar';
+import SmartQueryChatbot from '../components/SmartQueryChatbot';
 import { Bar, BarChart, XAxis, YAxis, Tooltip, Legend, LineChart, Line, CartesianGrid } from "recharts";
 import { Container, Row, Col, Card, Button, Table, Modal, Form } from "react-bootstrap";
 import { Bell, User, ChevronDown, Plus, MessageSquare, List, X, Database, AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { API_URL } from '../config';
 import toast from 'react-hot-toast';
+import api from '../utils/api';
 
 const AdminDashboard = () => {
     const location = useLocation();
+    const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [resourceData, setResourceData] = useState([]);
     const [resourceLoading, setResourceLoading] = useState(true);
@@ -21,6 +24,7 @@ const AdminDashboard = () => {
         if (location.pathname === '/admin/escalated') return 'escalated';
         if (location.pathname === '/admin/resource-management') return 'resource';
         if (location.pathname === '/admin/settings') return 'settings';
+        if (location.pathname === '/admin/smart-query') return 'smart-query';
         return 'dashboard';
     });
     const [escalatedGrievances, setEscalatedGrievances] = useState([]);
@@ -47,11 +51,23 @@ const AdminDashboard = () => {
         if (location.pathname === '/admin/escalated') setActiveTab('escalated');
         else if (location.pathname === '/admin/resource-management') setActiveTab('resource');
         else if (location.pathname === '/admin/settings') setActiveTab('settings');
+        else if (location.pathname === '/admin/smart-query') setActiveTab('smart-query');
         else if (location.pathname === '/admin/dashboard') setActiveTab('dashboard');
     }, [location.pathname]);
 
     useEffect(() => {
         console.log('Active tab changed to:', activeTab);
+
+        // Check if user is authenticated before making API calls
+        const token = localStorage.getItem('token');
+        const user = localStorage.getItem('user');
+
+        if (!token || !user) {
+            console.log('No token or user found, redirecting to login');
+            navigate('/login');
+            return;
+        }
+
         if (activeTab === 'dashboard') {
             fetchResourceData();
             fetchDashboardStats();
@@ -67,26 +83,16 @@ const AdminDashboard = () => {
             setResourceLoading(true);
             setResourceError(null);
 
-            const token = localStorage.getItem('token');
-            if (!token) {
-                throw new Error('No authentication token found');
-            }
-
-            const response = await fetch('http://localhost:5000/api/admin/resource-management', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch resource data');
-            }
-
-            const data = await response.json();
-            setResourceData(data.resources);
+            const response = await api.get('/admin/resource-management');
+            setResourceData(response.data.resources);
         } catch (error) {
             console.error('Error fetching resource data:', error);
             setResourceError('Failed to load resource data');
+            if (error.message === 'AUTH_REQUIRED' || error.isAuthError) {
+                // Clear any stale data
+                setResourceData([]);
+                navigate('/login');
+            }
         } finally {
             setResourceLoading(false);
         }
@@ -97,26 +103,14 @@ const AdminDashboard = () => {
             setEscalatedLoading(true);
             setEscalatedError(null);
 
-            const token = localStorage.getItem('token');
-            if (!token) {
-                throw new Error('No authentication token found');
-            }
-
-            const response = await fetch(`${API_URL}/grievances/escalated`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch escalated grievances');
-            }
-
-            const data = await response.json();
-            setEscalatedGrievances(data.grievances);
+            const response = await api.get('/grievances/escalated');
+            setEscalatedGrievances(response.data.grievances);
         } catch (error) {
             console.error('Error fetching escalated grievances:', error);
             setEscalatedError(error.message);
+            if (error.message === 'AUTH_REQUIRED' || error.isAuthError) {
+                navigate('/login');
+            }
         } finally {
             setEscalatedLoading(false);
         }
@@ -124,27 +118,14 @@ const AdminDashboard = () => {
 
     const fetchOfficials = async (department) => {
         try {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                throw new Error('No authentication token found');
-            }
-
-            const response = await fetch(`${API_URL}/admin/officials?department=${department}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch officials');
-            }
-
-            const data = await response.json();
-            // Filter officials by department
-            setOfficials(data.officials.filter(official => official.department === department));
+            const response = await api.get(`/admin/officials?department=${department}`);
+            setOfficials(response.data.officials.filter(official => official.department === department));
         } catch (error) {
             console.error('Error fetching officials:', error);
             toast.error('Failed to load officials');
+            if (error.message === 'AUTH_REQUIRED' || error.isAuthError) {
+                navigate('/login');
+            }
         }
     };
 
@@ -160,43 +141,24 @@ const AdminDashboard = () => {
             setDashboardLoading(true);
             setDashboardError(null);
 
-            const token = localStorage.getItem('token');
-            if (!token) {
-                throw new Error('No authentication token found');
-            }
-
             // Fetch department performance data
-            const deptResponse = await fetch(`${API_URL}/admin/department-stats`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!deptResponse.ok) {
-                throw new Error('Failed to fetch department statistics');
-            }
-
-            const deptData = await deptResponse.json();
-            setDepartmentStats(deptData.departmentStats);
+            const deptResponse = await api.get('/admin/department-stats');
+            setDepartmentStats(deptResponse.data.departmentStats);
 
             // Fetch monthly trends data
-            const monthlyResponse = await fetch(`${API_URL}/admin/monthly-stats`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!monthlyResponse.ok) {
-                throw new Error('Failed to fetch monthly statistics');
-            }
-
-            const monthlyData = await monthlyResponse.json();
-            setMonthlyStats(monthlyData.monthlyStats);
+            const monthlyResponse = await api.get('/admin/monthly-stats');
+            setMonthlyStats(monthlyResponse.data.monthlyStats);
 
         } catch (error) {
             console.error('Error fetching dashboard statistics:', error);
             setDashboardError('Failed to load dashboard statistics');
             toast.error('Failed to load dashboard statistics');
+            if (error.message === 'AUTH_REQUIRED' || error.isAuthError) {
+                // Clear any stale data
+                setDepartmentStats([]);
+                setMonthlyStats([]);
+                navigate('/login');
+            }
         } finally {
             setDashboardLoading(false);
         }
@@ -204,26 +166,21 @@ const AdminDashboard = () => {
 
     const fetchQuickStats = async () => {
         try {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                throw new Error('No authentication token found');
-            }
-
-            const response = await fetch(`${API_URL}/admin/quick-stats`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch quick statistics');
-            }
-
-            const data = await response.json();
-            setQuickStats(data);
+            const response = await api.get('/admin/quick-stats');
+            setQuickStats(response.data);
         } catch (error) {
             console.error('Error fetching quick statistics:', error);
             toast.error('Failed to load quick statistics');
+            if (error.message === 'AUTH_REQUIRED' || error.isAuthError) {
+                // Reset quick stats to default values
+                setQuickStats({
+                    totalCases: { value: 0, trend: '0%' },
+                    activeCases: { value: 0, trend: '0%' },
+                    resolvedCases: { value: 0, trend: '0%' },
+                    departments: { value: 0, trend: 'Stable' }
+                });
+                navigate('/login');
+            }
         }
     };
 
@@ -240,72 +197,26 @@ const AdminDashboard = () => {
                 return;
             }
 
-            const token = localStorage.getItem('token');
-            if (!token) {
-                toast.error('Authentication token not found');
-                return;
-            }
+            const isReassignment = !!newAssignedTo;
+            const payload = {
+                escalationResponse: escalationResponse.trim(),
+                isReassignment,
+                newAssignedTo: newAssignedTo || undefined
+            };
 
-            // Default status is 'assigned' when responding to escalation
-            const status = 'assigned';
-            const isReassignment = Boolean(newAssignedTo);
-            let assignedOfficialDetails = null;
+            await api.post(`/grievances/${selectedGrievance._id}/escalation-response`, payload);
 
-            // Get details of the newly assigned official if reassignment
-            if (isReassignment) {
-                const official = officials.find(off => off._id === newAssignedTo);
-                if (!official) {
-                    toast.error('Selected official not found');
-                    return;
-                }
-                assignedOfficialDetails = {
-                    firstName: official.firstName,
-                    lastName: official.lastName
-                };
-            }
-
-            const response = await fetch(`${API_URL}/grievances/${selectedGrievance._id}/escalation-response`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    escalationResponse: escalationResponse.trim(),
-                    newStatus: status,
-                    newAssignedTo: newAssignedTo || null,
-                    isReassignment,
-                    notification: isReassignment ? {
-                        title: 'Grievance Reassigned',
-                        message: `A grievance has been reassigned to you by admin: ${selectedGrievance.title}`,
-                        type: 'reassignment',
-                        grievanceId: selectedGrievance._id,
-                        recipientId: newAssignedTo
-                    } : null
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || data.details || 'Failed to submit escalation response');
-            }
-
-            // Show success message with reassignment details if applicable
-            if (isReassignment && assignedOfficialDetails) {
-                toast.success(`Grievance reassigned to ${assignedOfficialDetails.firstName} ${assignedOfficialDetails.lastName}`);
-            } else {
-                toast.success('Response submitted successfully');
-            }
-
+            toast.success('Response submitted successfully');
             setShowResponseModal(false);
             setEscalationResponse('');
             setNewAssignedTo('');
-            setSelectedGrievance(null);
             fetchEscalatedGrievances();
         } catch (error) {
             console.error('Error responding to escalation:', error);
-            toast.error(error.message || 'Failed to submit response');
+            toast.error(error.response?.data?.error || error.message || 'Failed to submit response');
+            if (error.message === 'AUTH_REQUIRED' || error.isAuthError) {
+                navigate('/login');
+            }
         }
     };
 
@@ -642,6 +553,76 @@ const AdminDashboard = () => {
                             )}
                         </Card.Body>
                     </Card>
+                );
+            case 'resource':
+                return (
+                    <Container fluid>
+                        <Row>
+                            <Col>
+                                <Card className="shadow-sm">
+                                    <Card.Header>
+                                        <h6>Resource Management</h6>
+                                    </Card.Header>
+                                    <Card.Body>
+                                        {resourceLoading ? (
+                                            <div className="text-center">Loading resource data...</div>
+                                        ) : resourceError ? (
+                                            <div className="text-danger">{resourceError}</div>
+                                        ) : (
+                                            <Table responsive>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Department</th>
+                                                        <th>Grievance ID</th>
+                                                        <th>Requirements</th>
+                                                        <th>Funds Required</th>
+                                                        <th>Resources</th>
+                                                        <th>Manpower</th>
+                                                        <th>Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {resourceData.map((resource) => (
+                                                        <tr key={resource._id}>
+                                                            <td>{resource.department}</td>
+                                                            <td>{resource.petitionId}</td>
+                                                            <td>{resource.requirementsNeeded}</td>
+                                                            <td>₹{resource.fundsRequired.toLocaleString()}</td>
+                                                            <td>{resource.resourcesRequired}</td>
+                                                            <td>{resource.manpowerNeeded}</td>
+                                                            <td>
+                                                                <span className={`badge bg-${getStatusBadgeClass(resource.status)}`}>
+                                                                    {resource.status}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </Table>
+                                        )}
+                                    </Card.Body>
+                                </Card>
+                            </Col>
+                        </Row>
+                    </Container>
+                );
+            case 'smart-query':
+                return (
+                    <Container fluid>
+                        <Row>
+                            <Col>
+                                <Card className="shadow-sm">
+                                    <Card.Body>
+                                        <h4 className="mb-4">Smart Query Assistant</h4>
+                                        <p className="text-muted mb-4">
+                                            Ask questions about grievances, resources, and escalations in natural language
+                                        </p>
+                                        <SmartQueryChatbot />
+                                    </Card.Body>
+                                </Card>
+                            </Col>
+                        </Row>
+                    </Container>
                 );
             default:
                 return null;

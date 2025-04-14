@@ -59,15 +59,20 @@ router.post("/login", async (req, res) => {
         // Generate token with correct role
         const token = generateToken({
             _id: petitioner._id,
-            role: 'petitioner'
+            role: 'petitioner',
+            email: petitioner.email,
+            name: `${petitioner.firstName} ${petitioner.lastName}`.trim()
         });
 
         res.json({
             message: "Login successful",
             token,
-            userId: petitioner._id.toString(),
-            name: `${petitioner.firstName} ${petitioner.lastName}`.trim(),
-            email: petitioner.email
+            user: {
+                id: petitioner._id.toString(),
+                name: `${petitioner.firstName} ${petitioner.lastName}`.trim(),
+                email: petitioner.email,
+                role: 'petitioner'
+            }
         });
 
     } catch (error) {

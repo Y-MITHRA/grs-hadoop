@@ -551,8 +551,8 @@ function buildFilter(components) {
         } else if (components.status === 'in progress') {
             filter.status = 'in-progress';
         } else {
-            // Strict status matching with case-insensitive search
-            filter.status = components.status.toLowerCase();
+            // Case-insensitive status search
+            filter.status = new RegExp(`^${components.status}$`, 'i');
         }
     }
     if (components.priority) {

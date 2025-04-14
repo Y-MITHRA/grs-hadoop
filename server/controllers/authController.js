@@ -4,9 +4,13 @@ import Official from '../models/Official.js';
 import Petitioner from '../models/Petitioner.js';
 import Admin from '../models/Admin.js';
 import Grievance from '../models/Grievance.js';
+import { JWT_SECRET, JWT_OPTIONS } from '../config/jwt.js';
 
-// Use the same secret as the client
-const JWT_SECRET = 'your-secret-key';
+// Helper function to calculate token expiration
+const calculateTokenExpiration = () => {
+    // 24 hours from now
+    return Math.floor(Date.now() / 1000) + (24 * 60 * 60);
+};
 
 const generateToken = (user) => {
     if (!user || !user._id) {
@@ -16,10 +20,80 @@ const generateToken = (user) => {
     const payload = {
         id: user._id.toString(),
         role: (user.role || 'petitioner').toLowerCase(), // Default to petitioner if role is undefined
-        exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+        exp: calculateTokenExpiration()
     };
 
-    return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256' });
+    return jwt.sign(payload, JWT_SECRET, JWT_OPTIONS);
+};
+
+// Token verification endpoint
+export const verifyToken = async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({
+                success: false,
+                message: 'No token provided'
+            });
+        }
+
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET, JWT_OPTIONS);
+
+        // Find user based on role
+        let user;
+        switch (decoded.role.toLowerCase()) {
+            case 'petitioner':
+                user = await Petitioner.findById(decoded.id);
+                break;
+            case 'official':
+                user = await Official.findById(decoded.id);
+                break;
+            case 'admin':
+                user = await Admin.findById(decoded.id);
+                break;
+            default:
+                return res.status(401).json({
+                    success: false,
+                    message: 'Invalid user role'
+                });
+        }
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Token is valid and user exists
+        return res.status(200).json({
+            success: true,
+            user: {
+                id: user._id,
+                email: user.email,
+                role: decoded.role,
+                name: user.firstName && user.lastName
+                    ? `${user.firstName} ${user.lastName}`.trim()
+                    : user.name || user.email.split('@')[0]
+            }
+        });
+
+    } catch (error) {
+        console.error('Token verification error:', error);
+
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Token has expired'
+            });
+        }
+
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid token'
+        });
+    }
 };
 
 // Token Refresh
@@ -34,7 +108,7 @@ export const refreshToken = async (req, res) => {
         }
 
         const token = authHeader.replace('Bearer ', '');
-        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+        const decoded = jwt.verify(token, JWT_SECRET, JWT_OPTIONS);
 
         let user;
         switch (decoded.role) {

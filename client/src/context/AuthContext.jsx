@@ -127,11 +127,11 @@ export const AuthProvider = ({ children }) => {
             // Determine the endpoint based on the login type
             let endpoint;
             if (adminId) {
-                endpoint = '/api/admin/login';
+                endpoint = '/api/auth/admin/login';
             } else if (department) {
-                endpoint = '/api/login/official';
+                endpoint = '/api/auth/official/login';
             } else {
-                endpoint = '/api/login/petitioner';
+                endpoint = '/api/auth/petitioner/login';
             }
 
             // Extract email if it's an object
@@ -182,11 +182,11 @@ export const AuthProvider = ({ children }) => {
 
             // Navigate based on role
             if (data.user.role.toLowerCase() === 'petitioner') {
-                navigate('/petitioner/dashboard');
+                navigate(getRedirectPath('petitioner'));
             } else if (data.user.role.toLowerCase() === 'official') {
                 navigate(getRedirectPath('official', data.user.department));
             } else if (data.user.role.toLowerCase() === 'admin') {
-                navigate('/admin/dashboard');
+                navigate(getRedirectPath('admin'));
             }
 
             return data;

@@ -60,7 +60,7 @@ const PetitionerLogin = () => {
                 navigate(redirectPath);
             } else {
                 // Default navigation to dashboard
-                navigate('/petitioner/dashboard');
+                navigate(getRedirectPath('petitioner'));
             }
         } catch (error) {
             console.error('Login error:', error);
