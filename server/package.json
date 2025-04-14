@@ -15,6 +15,7 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^3.0.3",
+    "pdfjs-dist": "^5.1.91",
     "react-chat-engine": "^1.11.28",
     "socket.io": "^4.8.1",
     "stream-chat": "^8.57.6",

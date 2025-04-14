@@ -82,7 +82,7 @@ const SubmitGrievance = () => {
             ...prev,
             [name]: value
         }));
-        // Clear error when user starts typing
+        // Clear any errors for this field
         if (errors[name]) {
             setErrors(prev => ({
                 ...prev,
@@ -120,25 +120,45 @@ const SubmitGrievance = () => {
                     }));
                     return;
                 }
+                // Check file type
+                const fileType = file.type;
+                if (!fileType.match(/^(image\/(jpeg|png|jpg)|application\/pdf)$/)) {
+                    setErrors(prev => ({
+                        ...prev,
+                        document: 'Only PDF, JPG, and PNG files are supported'
+                    }));
+                    return;
+                }
                 setDocumentFile(file);
+                // Clear any existing document error
+                if (errors.document) {
+                    setErrors(prev => ({
+                        ...prev,
+                        document: ''
+                    }));
+                }
             }
         }
     };
 
     const validateForm = () => {
         const newErrors = {};
+
+        // Common validations for both form and document
+        if (!formData.department) {
+            newErrors.department = 'Department is required';
+        }
+        if (!formData.location.trim()) {
+            newErrors.location = 'Location is required';
+        }
+
+        // Form-specific validations
         if (activeTab === 'form') {
             if (!formData.title.trim()) {
                 newErrors.title = 'Title is required';
             }
-            if (!formData.department) {
-                newErrors.department = 'Department is required';
-            }
             if (!formData.description.trim()) {
                 newErrors.description = 'Description is required';
-            }
-            if (!formData.location.trim()) {
-                newErrors.location = 'Location is required';
             }
             if (!formData.taluk.trim()) {
                 newErrors.taluk = 'Taluk is required';
@@ -149,11 +169,14 @@ const SubmitGrievance = () => {
             if (!formData.division.trim()) {
                 newErrors.division = 'Division is required';
             }
-        } else {
+        }
+        // Document-specific validations
+        else {
             if (!documentFile) {
                 newErrors.document = 'Please upload a document';
             }
         }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -182,7 +205,7 @@ const SubmitGrievance = () => {
                     coordinates: formData.coordinates
                 };
 
-                console.log('Submitting grievance with data:', requestData);
+                console.log('Submitting form grievance with data:', requestData);
 
                 const response = await authenticatedFetch('http://localhost:5000/api/grievances', {
                     method: 'POST',
@@ -194,12 +217,11 @@ const SubmitGrievance = () => {
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    console.error('Server response error:', errorData);
                     throw new Error(errorData.error || 'Failed to submit grievance');
                 }
 
                 const data = await response.json();
-                console.log('Server response success:', data);
+                console.log('Server response:', data);
 
                 if (data.message === 'Grievance created successfully') {
                     setSubmitSuccess(true);
@@ -230,18 +252,16 @@ const SubmitGrievance = () => {
                 formDataToSubmit.append('document', documentFile);
                 formDataToSubmit.append('department', formData.department);
                 formDataToSubmit.append('location', formData.location);
-                formDataToSubmit.append('taluk', formData.taluk);
-                formDataToSubmit.append('district', formData.district);
-                formDataToSubmit.append('division', formData.division);
-                formDataToSubmit.append('coordinates', JSON.stringify(formData.coordinates));
+                if (formData.coordinates) {
+                    formDataToSubmit.append('coordinates', JSON.stringify(formData.coordinates));
+                }
+                formDataToSubmit.append('fileType', documentFile.type); // Add file type information
 
-                console.log('Submitting document with data:', {
+                console.log('Submitting document grievance with data:', {
                     department: formData.department,
                     location: formData.location,
-                    taluk: formData.taluk,
-                    district: formData.district,
-                    division: formData.division,
-                    coordinates: formData.coordinates
+                    coordinates: formData.coordinates,
+                    fileType: documentFile.type
                 });
 
                 const response = await authenticatedFetch('http://localhost:5000/api/grievances/document', {
@@ -251,10 +271,12 @@ const SubmitGrievance = () => {
 
                 if (!response.ok) {
                     const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to submit document');
+                    throw new Error(errorData.error || errorData.details || 'Failed to submit document');
                 }
 
                 const data = await response.json();
+                console.log('Server response:', data);
+
                 if (data.message === 'Document processed successfully') {
                     setSubmitSuccess(true);
                     setDocumentFile(null);
@@ -270,6 +292,11 @@ const SubmitGrievance = () => {
                         attachments: []
                     });
                     toast.success('Document submitted successfully!');
+
+                    // Show extracted information if available
+                    if (data.extractedData) {
+                        toast.success('Successfully extracted information from document');
+                    }
 
                     setTimeout(() => {
                         navigate('/petitioner/dashboard', {
@@ -485,6 +512,7 @@ const SubmitGrievance = () => {
                                                     <li>Digitalized English text</li>
                                                     <li>Handwritten English text</li>
                                                 </ul>
+                                                <p className="mt-2 mb-0"><strong>Note:</strong> Location details (taluk, district, division) will be automatically extracted from the document.</p>
                                             </div>
 
                                             <div className="mb-3">
@@ -509,7 +537,7 @@ const SubmitGrievance = () => {
                                                     <input
                                                         type="file"
                                                         className={`form-control ${errors.document ? 'is-invalid' : ''}`}
-                                                        onChange={(e) => setDocumentFile(e.target.files[0])}
+                                                        onChange={handleFileChange}
                                                         accept=".pdf,.jpg,.jpeg,.png"
                                                     />
                                                     <span className="input-group-text">

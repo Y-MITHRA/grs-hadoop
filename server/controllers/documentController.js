@@ -5,8 +5,8 @@ import { dirname } from 'path';
 import fs from 'fs';
 import Grievance from '../models/Grievance.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { createWorker } from 'tesseract.js';
 import Official from '../models/Official.js';
+import Assignment from '../models/Assignment.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -41,6 +41,9 @@ export const upload = multer({
         }
     }
 });
+
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Clean and validate department value
 const cleanDepartment = (department) => {
@@ -92,136 +95,147 @@ const analyzePriority = (text) => {
 // Process document and create grievance
 export const processDocument = async (req, res) => {
     try {
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error('Gemini API key is not configured');
+        }
+
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            return res.status(400).json({ error: 'No document uploaded' });
         }
 
+        const petitioner = req.user.id;
         const filePath = req.file.path;
-        let extractedText = '';
 
-        // Extract text from document using OCR if it's an image
-        if (req.file.mimetype.startsWith('image/')) {
-            try {
-                const worker = await createWorker();
-                await worker.loadLanguage('eng+tam');
-                await worker.initialize('eng+tam');
-                const { data: { text } } = await worker.recognize(filePath);
-                await worker.terminate();
-                extractedText = text;
-            } catch (ocrError) {
-                console.error('OCR error:', ocrError);
-                extractedText = 'Failed to extract text from image. Please provide a clearer image.';
-            }
+        // Initialize Gemini 2.0 Flash model
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+        // Read the file content
+        const fileContent = await fs.promises.readFile(filePath);
+        const imageData = fileContent.toString('base64');
+
+        // First, try to detect if the document is in Tamil
+        const languageDetectionPrompt = "Is this document written in Tamil? Answer with 'yes' or 'no' only.";
+        const languageResult = await model.generateContent({
+            contents: [{
+                parts: [
+                    { text: languageDetectionPrompt },
+                    {
+                        inlineData: {
+                            mimeType: req.file.mimetype,
+                            data: imageData
+                        }
+                    }
+                ]
+            }]
+        });
+
+        const isTamil = languageResult.response.text().toLowerCase().includes('yes');
+
+        // If Tamil, translate to English
+        let englishText;
+        if (isTamil) {
+            const translationPrompt = "Translate this Tamil document to English. Provide only the English translation.";
+            const translationResult = await model.generateContent({
+                contents: [{
+                    parts: [
+                        { text: translationPrompt },
+                        {
+                            inlineData: {
+                                mimeType: req.file.mimetype,
+                                data: imageData
+                            }
+                        }
+                    ]
+                }]
+            });
+            englishText = translationResult.response.text();
         } else {
-            // For PDFs, you would use a PDF parser here
-            // This is a placeholder for PDF parsing logic
-            extractedText = 'PDF text extraction placeholder';
+            // If English, extract text directly
+            const textExtractionPrompt = "Extract the text from this document.";
+            const textResult = await model.generateContent({
+                contents: [{
+                    parts: [
+                        { text: textExtractionPrompt },
+                        {
+                            inlineData: {
+                                mimeType: req.file.mimetype,
+                                data: imageData
+                            }
+                        }
+                    ]
+                }]
+            });
+            englishText = textResult.response.text();
         }
 
-        // Initialize variables for extracted data
-        let extractedData = {
-            title: 'Untitled Grievance',
-            description: extractedText,
-            location: 'Location not specified',
-            taluk: 'Taluk not specified',
-            district: 'District not specified',
-            division: 'Division not specified',
-            department: 'Department not specified',
-            priority: 'Medium',
-            priorityExplanation: 'Priority determined based on content analysis',
-            impactAssessment: 'Impact assessment pending',
-            recommendedResponseTime: 'Standard response time'
+        // Extract key information using Gemini
+        const extractionPrompt = `Analyze this text and provide the following information in a structured format. For priority, carefully analyze the content and assign based on these criteria:
+        - High: Life-threatening situations, safety hazards, critical infrastructure issues, immediate health risks
+        - Medium: Service disruptions, maintenance issues, quality concerns, non-critical problems
+        - Low: General complaints, improvement suggestions, minor inconveniences
+
+        Title: [Main topic or subject]
+        Department: [Water, RTO, or Electricity only]
+        Location: [Address or area mentioned]
+        Description: [Main content or issue]
+        Priority: [High, Medium, or Low]
+        Priority Explanation: [Brief explanation of why this priority was assigned]
+        District: [District mentioned]
+        Division: [Division mentioned]
+        Taluk: [Taluk mentioned]
+
+        Text to analyze: ${englishText}`;
+
+        const extractionResult = await model.generateContent({
+            contents: [{
+                parts: [{ text: extractionPrompt }]
+            }]
+        });
+
+        // Parse the response text to extract information
+        const responseText = extractionResult.response.text();
+        const extractedData = {
+            title: '',
+            department: '',
+            location: '',
+            description: '',
+            priority: 'Medium', // Default priority
+            priorityExplanation: '',
+            district: '',
+            division: '',
+            taluk: ''
         };
 
-        // Try to use Gemini AI for analysis if API key is available
-        if (process.env.GEMINI_API_KEY) {
-            try {
-                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                const model = genAI.getGenerativeModel({ 
-                    model: "gemini-flash-2.0",
-                    generationConfig: {
-                        temperature: 0.3,
-                        topK: 32,
-                        topP: 0.95,
-                        maxOutputTokens: 2048,
-                    }
-                });
+        // Extract information using regex
+        const titleMatch = responseText.match(/Title:\s*([^\n]+)/i);
+        const departmentMatch = responseText.match(/Department:\s*([^\n]+)/i);
+        const locationMatch = responseText.match(/Location:\s*([^\n]+)/i);
+        const descriptionMatch = responseText.match(/Description:\s*([^\n]+)/i);
+        const priorityMatch = responseText.match(/Priority:\s*([^\n]+)/i);
+        const priorityExplanationMatch = responseText.match(/Priority Explanation:\s*([^\n]+)/i);
+        const districtMatch = responseText.match(/District:\s*([^\n]+)/i);
+        const divisionMatch = responseText.match(/Division:\s*([^\n]+)/i);
+        const talukMatch = responseText.match(/Taluk:\s*([^\n]+)/i);
 
-                // Analyze the extracted text
-                const extractionPrompt = `
-                    Analyze the following grievance text and extract relevant information. 
-                    Consider the full context and implications of the situation.
-                    Pay special attention to location-based administrative information.
-                    
-                    Text to analyze: "${extractedText}"
-                    
-                    Please provide a comprehensive analysis in the following format:
-                    
-                    TITLE: [Extract a clear, concise title that captures the main issue]
-                    DESCRIPTION: [Provide a detailed description of the grievance]
-                    LOCATION: [Extract the specific location/address mentioned]
-                    TALUK: [Extract the taluk (sub-district) mentioned]
-                    DISTRICT: [Extract the district mentioned]
-                    DIVISION: [Extract the division mentioned, if any]
-                    DEPARTMENT: [Identify the most relevant department based on the nature of the issue]
-                    PRIORITY: [Analyze the situation holistically and determine if it's High/Medium/Low]
-                    PRIORITY_EXPLANATION: [Explain the reasoning behind the priority level]
-                    IMPACT_ASSESSMENT: [Analyze the broader implications and impact]
-                    RECOMMENDED_RESPONSE_TIME: [Suggest an appropriate response timeframe]
-                    
-                    Format the response exactly as shown above, with each field on a new line.
-                `;
+        if (titleMatch) extractedData.title = titleMatch[1].trim();
+        if (departmentMatch) extractedData.department = cleanDepartment(departmentMatch[1]);
+        if (locationMatch) extractedData.location = locationMatch[1].trim();
+        if (descriptionMatch) extractedData.description = descriptionMatch[1].trim();
+        if (priorityMatch) extractedData.priority = priorityMatch[1].trim();
+        if (priorityExplanationMatch) extractedData.priorityExplanation = priorityExplanationMatch[1].trim();
+        if (districtMatch) extractedData.district = districtMatch[1].trim();
+        if (divisionMatch) extractedData.division = divisionMatch[1].trim();
+        if (talukMatch) extractedData.taluk = talukMatch[1].trim();
 
-                const extractionResult = await model.generateContent({
-                    contents: [{
-                        parts: [{ text: extractionPrompt }]
-                    }]
-                });
-
-                const extractionResponse = extractionResult.response.text();
-
-                // Extract information using regex
-                const titleMatch = extractionResponse.match(/TITLE:\s*([^\n]+)/i);
-                const descriptionMatch = extractionResponse.match(/DESCRIPTION:\s*([^\n]+)/i);
-                const locationMatch = extractionResponse.match(/LOCATION:\s*([^\n]+)/i);
-                const talukMatch = extractionResponse.match(/TALUK:\s*([^\n]+)/i);
-                const districtMatch = extractionResponse.match(/DISTRICT:\s*([^\n]+)/i);
-                const divisionMatch = extractionResponse.match(/DIVISION:\s*([^\n]+)/i);
-                const departmentMatch = extractionResponse.match(/DEPARTMENT:\s*([^\n]+)/i);
-                const priorityMatch = extractionResponse.match(/PRIORITY:\s*([^\n]+)/i);
-                const priorityExplanationMatch = extractionResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
-                const impactAssessmentMatch = extractionResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
-                const recommendedResponseTimeMatch = extractionResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
-
-                // Update extracted data with Gemini results
-                if (titleMatch) extractedData.title = titleMatch[1].trim();
-                if (descriptionMatch) extractedData.description = descriptionMatch[1].trim();
-                if (locationMatch) extractedData.location = locationMatch[1].trim();
-                if (talukMatch) extractedData.taluk = talukMatch[1].trim();
-                if (districtMatch) extractedData.district = districtMatch[1].trim();
-                if (divisionMatch) extractedData.division = divisionMatch[1].trim();
-                if (departmentMatch) extractedData.department = cleanDepartment(departmentMatch[1]);
-                if (priorityMatch) extractedData.priority = priorityMatch[1].trim();
-                if (priorityExplanationMatch) extractedData.priorityExplanation = priorityExplanationMatch[1].trim();
-                if (impactAssessmentMatch) extractedData.impactAssessment = impactAssessmentMatch[1].trim();
-                if (recommendedResponseTimeMatch) extractedData.recommendedResponseTime = recommendedResponseTimeMatch[1].trim();
-            } catch (geminiError) {
-                console.error('Gemini AI error:', geminiError);
-                // Fallback to local priority analysis
-                extractedData.priority = analyzePriority(extractedText);
-                extractedData.priorityExplanation = `Priority determined using local analysis: ${extractedData.priority}`;
-            }
-        } else {
-            console.warn('GEMINI_API_KEY is not set. Using local priority analysis.');
-            // Fallback to local priority analysis
-            extractedData.priority = analyzePriority(extractedText);
-            extractedData.priorityExplanation = `Priority determined using local analysis: ${extractedData.priority}`;
+        // Validate required fields
+        if (!extractedData.title || !extractedData.department || !extractedData.location || !extractedData.description) {
+            throw new Error('Failed to extract required information from the document');
         }
 
         // Validate department is one of the allowed values
         const validDepartments = ['Water', 'RTO', 'Electricity'];
         if (!validDepartments.includes(extractedData.department)) {
-            extractedData.department = 'Water'; // Default to Water if invalid
+            throw new Error(`Invalid department: ${extractedData.department}. Must be one of: ${validDepartments.join(', ')}`);
         }
 
         // Validate priority is one of the allowed values
@@ -230,16 +244,6 @@ export const processDocument = async (req, res) => {
             extractedData.priority = 'Medium'; // Default to Medium if invalid
         }
 
-        // Find matching officials based on location and department
-        const matchingOfficials = await Official.find({
-            department: extractedData.department,
-            $or: [
-                { taluk: extractedData.taluk },
-                { district: extractedData.district },
-                { division: extractedData.division }
-            ]
-        });
-
         // Create new grievance
         const grievance = new Grievance({
             petitionId: `GRV${Date.now().toString().slice(-6)}`,
@@ -247,75 +251,69 @@ export const processDocument = async (req, res) => {
             description: extractedData.description,
             department: extractedData.department,
             location: extractedData.location,
-            taluk: extractedData.taluk,
             district: extractedData.district,
             division: extractedData.division,
-            petitioner: req.user.id,
+            taluk: extractedData.taluk,
+            petitioner,
             status: 'pending',
             priority: extractedData.priority,
             priorityExplanation: extractedData.priorityExplanation,
-            impactAssessment: extractedData.impactAssessment,
-            recommendedResponseTime: extractedData.recommendedResponseTime,
+            portal_type: 'GRS',
+            coordinates: req.body.coordinates && !isNaN(parseFloat(req.body.coordinates.latitude)) && !isNaN(parseFloat(req.body.coordinates.longitude)) ? {
+                latitude: parseFloat(req.body.coordinates.latitude),
+                longitude: parseFloat(req.body.coordinates.longitude)
+            } : undefined,
             statusHistory: [{
                 status: 'pending',
-                updatedBy: req.user.id,
+                updatedBy: petitioner,
                 updatedByType: 'petitioner',
                 comment: `Document-based grievance submitted. Priority: ${extractedData.priority} - ${extractedData.priorityExplanation}`
             }],
             originalDocument: {
-                filename: req.file.filename,
+                filename: req.file.originalname,
                 path: filePath,
                 uploadedAt: new Date()
-            }
+            },
+            recommendedResponseTime: extractedData.priority === 'High' ? '24' :
+                extractedData.priority === 'Medium' ? '48' : '72',
+            impactAssessment: extractedData.priority === 'High' ? 'High' :
+                extractedData.priority === 'Medium' ? 'Medium' : 'Low'
         });
-
-        // If matching officials found, assign the grievance
-        if (matchingOfficials.length > 0) {
-            // Sort officials by jurisdiction match (exact matches first)
-            const sortedOfficials = matchingOfficials.sort((a, b) => {
-                const aScore = (a.taluk === extractedData.taluk ? 3 : 0) +
-                             (a.district === extractedData.district ? 2 : 0) +
-                             (a.division === extractedData.division ? 1 : 0);
-                const bScore = (b.taluk === extractedData.taluk ? 3 : 0) +
-                             (b.district === extractedData.district ? 2 : 0) +
-                             (b.division === extractedData.division ? 1 : 0);
-                return bScore - aScore;
-            });
-
-            // Assign to the best matching official
-            grievance.assignedTo = sortedOfficials[0]._id;
-            grievance.status = 'assigned';
-            grievance.statusHistory.push({
-                status: 'assigned',
-                updatedBy: sortedOfficials[0]._id,
-                updatedByType: 'system',
-                comment: `Automatically assigned to official based on jurisdiction match`
-            });
-        }
 
         await grievance.save();
 
-        // Return response with location information and official assignment
+        // Find and assign officials
+        const officials = await Official.find({
+            department: extractedData.department,
+            district: extractedData.district,
+            division: extractedData.division,
+            taluk: extractedData.taluk
+        });
+
+        // Create assignments
+        const assignments = await Promise.all(officials.map(official => {
+            return new Assignment({
+                grievanceId: grievance._id,
+                officialId: official._id,
+                status: 'Pending'
+            }).save();
+        }));
+
         res.status(201).json({
             message: 'Document processed successfully',
             grievance,
-            locationInfo: {
-                taluk: extractedData.taluk,
-                district: extractedData.district,
-                division: extractedData.division
-            },
-            officialAssignment: matchingOfficials.length > 0 ? {
-                assigned: true,
-                officialId: matchingOfficials[0]._id,
-                matchReason: `Matched based on ${matchingOfficials[0].taluk === extractedData.taluk ? 'taluk' : 
-                             matchingOfficials[0].district === extractedData.district ? 'district' : 'division'} jurisdiction`
-            } : {
-                assigned: false,
-                reason: 'No matching officials found for the specified location'
-            }
+            assignments
         });
     } catch (error) {
         console.error('Error processing document:', error);
+        if (req.file && req.file.path) {
+            try {
+                fs.unlinkSync(req.file.path);
+                console.log('Cleaned up uploaded file:', req.file.path);
+            } catch (cleanupError) {
+                console.error('Error cleaning up file:', cleanupError);
+            }
+        }
         res.status(500).json({
             error: 'Failed to process document',
             details: error.message
