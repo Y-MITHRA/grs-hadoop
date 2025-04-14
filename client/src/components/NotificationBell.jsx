@@ -52,13 +52,32 @@ const NotificationBell = ({ userId, userRole }) => {
             const response = await axios.get(`http://localhost:5000/api/notifications/user/${userId}`, {
                 headers: getAuthHeader()
             });
-            setNotifications(response.data.notifications);
-            setUnreadCount(response.data.unreadCount);
+
+            // Handle different response formats
+            if (response.data && Array.isArray(response.data)) {
+                // If response.data is directly an array of notifications
+                setNotifications(response.data);
+                // Count unread notifications
+                const unread = response.data.filter(n => !n.read).length;
+                setUnreadCount(unread);
+            } else if (response.data && response.data.notifications) {
+                // If response.data has notifications property
+                setNotifications(response.data.notifications);
+                setUnreadCount(response.data.unreadCount || 0);
+            } else {
+                // Default to empty array if format is unexpected
+                setNotifications([]);
+                setUnreadCount(0);
+                console.warn('Unexpected notification response format:', response.data);
+            }
         } catch (error) {
             console.error('Error fetching notifications:', error);
             if (error.response?.status !== 404) {
                 toast.error('Failed to fetch notifications');
             }
+            // Set empty state on error
+            setNotifications([]);
+            setUnreadCount(0);
         } finally {
             setLoading(false);
         }
@@ -83,7 +102,7 @@ const NotificationBell = ({ userId, userRole }) => {
     // Mark all as read
     const markAllAsRead = async () => {
         try {
-            await axios.put(`http://localhost:5000/api/notifications/mark-all-read/${userId}`, {}, {
+            await axios.put(`http://localhost:5000/api/notifications/user/${userId}/read-all`, {}, {
                 headers: getAuthHeader()
             });
             setNotifications(notifications.map(n => ({ ...n, read: true })));
@@ -97,6 +116,14 @@ const NotificationBell = ({ userId, userRole }) => {
     // Get notification type style
     const getNotificationStyle = (type) => {
         switch (type) {
+            case 'HIGH_PRIORITY':
+                return 'danger';
+            case 'REASSIGNMENT':
+                return 'warning';
+            case 'ESCALATION':
+                return 'danger';
+            case 'CASE_REASSIGNED':
+                return 'info';
             case 'GRIEVANCE_ASSIGNED':
                 return 'primary';
             case 'GRIEVANCE_UPDATE':
@@ -158,7 +185,7 @@ const NotificationBell = ({ userId, userRole }) => {
                 <Dropdown.Menu className="notification-menu p-0" style={{ width: '320px', maxHeight: '400px', overflowY: 'auto' }}>
                     <div className="p-2 border-bottom d-flex justify-content-between align-items-center">
                         <h6 className="mb-0">Notifications</h6>
-                        {notifications.length > 0 && (
+                        {notifications && notifications.length > 0 && (
                             <button
                                 className="btn btn-link btn-sm text-decoration-none"
                                 onClick={markAllAsRead}
@@ -173,7 +200,7 @@ const NotificationBell = ({ userId, userRole }) => {
                                 <span className="visually-hidden">Loading...</span>
                             </div>
                         </div>
-                    ) : notifications.length === 0 ? (
+                    ) : !notifications || notifications.length === 0 ? (
                         <div className="p-3 text-center text-muted">
                             No notifications
                         </div>
@@ -186,7 +213,7 @@ const NotificationBell = ({ userId, userRole }) => {
                             >
                                 <div className="d-flex flex-column">
                                     <div className="d-flex justify-content-between align-items-start">
-                                        <strong className="mb-1">{notification.title}</strong>
+                                        <strong className="mb-1">{notification.title || notification.type}</strong>
                                         <Badge bg={getNotificationStyle(notification.type)} className="ms-2">
                                             {notification.type.split('_').join(' ')}
                                         </Badge>

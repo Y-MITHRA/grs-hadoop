@@ -4,36 +4,25 @@ const notificationSchema = new mongoose.Schema({
     recipient: {
         type: mongoose.Schema.Types.ObjectId,
         required: true,
-        refPath: 'recipientModel'
+        refPath: 'recipientType'
     },
-    recipientModel: {
+    recipientType: {
         type: String,
         required: true,
-        enum: ['Official', 'Petitioner', 'Admin']
+        enum: ['User', 'Official', 'Admin', 'Petitioner']
     },
-    title: {
+    type: {
         type: String,
-        required: true
+        required: true,
+        enum: ['HIGH_PRIORITY', 'REASSIGNMENT', 'ESCALATION', 'CASE_REASSIGNED']
     },
     message: {
         type: String,
         required: true
     },
-    type: {
-        type: String,
-        required: true,
-        enum: [
-            'GRIEVANCE_ASSIGNED',
-            'GRIEVANCE_UPDATE',
-            'GRIEVANCE_REASSIGNED',
-            'ESCALATION_RESPONSE',
-            'GRIEVANCE_RESOLVED'
-        ]
-    },
     grievanceId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Grievance',
-        required: true
+        ref: 'Grievance'
     },
     read: {
         type: Boolean,

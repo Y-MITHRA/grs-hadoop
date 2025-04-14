@@ -12,6 +12,7 @@ import petitionerRoutes from './routes/petitioner.js';
 import adminRoutes from './routes/admin.js';
 import grievanceRoutes from './routes/grievanceRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 import fs from 'fs';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -77,6 +78,13 @@ app.use('/api/petitioner', petitionerRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/grievances', grievanceRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/notifications', notificationRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something broke!' });
+});
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {

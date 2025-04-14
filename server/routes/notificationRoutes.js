@@ -1,8 +1,18 @@
 import express from 'express';
 import { auth } from '../middleware/auth.js';
 import Notification from '../models/Notification.js';
+import { getUserNotifications, markAsRead, markAllAsRead } from '../controllers/notificationController.js';
 
 const router = express.Router();
+
+// Get notifications for a user
+router.get('/user/:userId', getUserNotifications);
+
+// Mark a notification as read
+router.put('/:notificationId/read', markAsRead);
+
+// Mark all notifications as read for a user
+router.put('/user/:userId/read-all', markAllAsRead);
 
 // Get user's notifications
 router.get('/:userId', auth, async (req, res) => {

@@ -1,8 +1,10 @@
 import Grievance from '../models/Grievance.js';
 import { mapCategoryToDepartment } from '../utils/departmentMapper.js';
 import Official from '../models/Official.js';
+import Admin from '../models/Admin.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Notification from '../models/Notification.js';
+import { createNotification } from './notificationController.js';
 
 // Update resource management
 export const updateResourceManagement = async (req, res) => {
@@ -333,10 +335,9 @@ export const createGrievance = async (req, res) => {
         for (const official of matchingOfficials) {
             await Notification.create({
                 recipient: official._id,
-                recipientModel: 'Official',
-                title: 'New Grievance Assignment',
+                recipientType: 'Official',
+                type: 'HIGH_PRIORITY',
                 message: `A new grievance has been submitted in your jurisdiction (${taluk}, ${district}, ${division}). Please review and accept if you can handle it.`,
-                type: 'GRIEVANCE_ASSIGNED',
                 grievanceId: grievance._id
             });
         }
@@ -347,9 +348,9 @@ export const createGrievance = async (req, res) => {
         });
     } catch (error) {
         console.error('Error creating grievance:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to create grievance',
-            details: error.message 
+            details: error.message
         });
     }
 };
@@ -373,7 +374,7 @@ export const getDepartmentGrievances = async (req, res) => {
         }
 
         // Build query with jurisdiction
-        const query = { 
+        const query = {
             department,
             taluk: official.taluk,
             district: official.district,
@@ -386,15 +387,20 @@ export const getDepartmentGrievances = async (req, res) => {
         } else if (status === 'assigned') {
             query.status = 'assigned';
             query.assignedTo = officialId;
-        } else if (status === 'inProgress') {
-            query.status = 'in-progress';
-            query.assignedTo = officialId;
+        } else if (status === 'inProgress' || status === 'in-progress') {
+            query.$and = [
+                { status: { $in: ['in-progress', 'inProgress'] } },
+                { assignedTo: officialId }
+            ];
         } else if (status === 'resolved') {
             query.status = 'resolved';
-            query.assignedTo = officialId;
+            query.$or = [
+                { assignedTo: officialId },
+                { assignedOfficials: officialId }
+            ];
         }
 
-        console.log('Query parameters:', query);
+        console.log('Query parameters:', JSON.stringify(query, null, 2));
 
         // Get grievances with all necessary fields
         const grievances = await Grievance.find(query)
@@ -407,13 +413,13 @@ export const getDepartmentGrievances = async (req, res) => {
 
         // Get stats for the official's jurisdiction
         const stats = await Grievance.aggregate([
-            { 
-                $match: { 
+            {
+                $match: {
                     department,
                     taluk: official.taluk,
                     district: official.district,
                     division: official.division
-                } 
+                }
             },
             {
                 $group: {
@@ -1092,6 +1098,17 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         await grievance.save();
         console.log('Document grievance saved successfully:', grievance);
 
+        // Create notifications for assigned officials
+        for (const official of nearestOfficeOfficials) {
+            await createNotification(
+                official._id,
+                'Official',
+                'HIGH_PRIORITY',
+                `A new document-based grievance has been submitted in your jurisdiction (${location}). Please review the uploaded document and accept if you can handle it.`,
+                grievance._id
+            );
+        }
+
         res.status(201).json({
             message: 'Document grievance created successfully',
             grievance,
@@ -1153,51 +1170,54 @@ async function getCoordinatesFromLocation(location) {
 export const escalateGrievance = async (req, res) => {
     try {
         const { id } = req.params;
-        const { escalationReason } = req.body;
-        const petitionerId = req.user.id;
-
         const grievance = await Grievance.findById(id);
+
         if (!grievance) {
-            return res.status(404).json({ error: 'Grievance not found' });
+            return res.status(404).json({ message: 'Grievance not found' });
         }
 
-        // Check if petitioner owns the grievance
-        if (grievance.petitioner.toString() !== petitionerId) {
-            return res.status(403).json({ error: 'Not authorized to escalate this grievance' });
+        // Find all admin users
+        const admins = await Admin.find({});
+
+        // Create notification for each admin
+        for (const admin of admins) {
+            await createNotification(
+                admin._id,
+                'Admin',
+                'ESCALATION',
+                `A case has been escalated and requires your attention. Grievance ID: ${id}`,
+                id
+            );
         }
 
-        // Check if already escalated
-        if (grievance.isEscalated) {
-            return res.status(400).json({ error: 'Grievance is already escalated' });
-        }
-
-        // Update grievance with escalation details
+        // Update grievance - keep the current status but mark as escalated
         grievance.isEscalated = true;
         grievance.escalatedAt = new Date();
-        grievance.escalationReason = escalationReason;
-        grievance.escalatedBy = petitionerId;
-        grievance.escalationStatus = 'Pending';
 
-        // Add to status history
+        // Add to status history with the current status
         grievance.statusHistory.push({
-            status: grievance.status,
-            updatedBy: petitionerId,
-            updatedByType: 'petitioner',
-            comment: `Grievance escalated. Reason: ${escalationReason}`
+            status: grievance.status, // Use the current status
+            updatedBy: req.user ? req.user.id : 'system',
+            updatedByType: req.user ? req.user.role : 'system',
+            comment: 'Grievance escalated to admin'
+        });
+
+        // Add timeline stage for escalation
+        grievance.timelineStages.push({
+            stageName: 'Escalated',
+            date: new Date(),
+            description: 'Grievance has been escalated to admin for review'
         });
 
         await grievance.save();
 
-        res.status(200).json({
+        res.json({
             message: 'Grievance escalated successfully',
             grievance
         });
     } catch (error) {
         console.error('Error escalating grievance:', error);
-        res.status(500).json({
-            error: 'Failed to escalate grievance',
-            details: error.message
-        });
+        res.status(500).json({ message: 'Error escalating grievance' });
     }
 };
 
@@ -1272,6 +1292,14 @@ export const respondToEscalation = async (req, res) => {
                 // Update assigned official
                 grievance.assignedTo = newAssignedTo;
 
+                // Update assignedOfficials array
+                if (!grievance.assignedOfficials) {
+                    grievance.assignedOfficials = [];
+                }
+                if (!grievance.assignedOfficials.includes(newAssignedTo)) {
+                    grievance.assignedOfficials.push(newAssignedTo);
+                }
+
                 // Always preserve the previous status if it was in-progress
                 if (previousStatus === 'in-progress') {
                     grievance.status = 'in-progress';
@@ -1286,10 +1314,9 @@ export const respondToEscalation = async (req, res) => {
                     // Notification for new official about existing resources and status
                     await Notification.create({
                         recipient: newAssignedTo,
-                        recipientModel: 'Official',
-                        title: `${grievance.priority} Priority Grievance Reassigned`,
+                        recipientType: 'Official',
+                        type: 'CASE_REASSIGNED',
                         message: `You have been assigned grievance #${grievance.petitionId} which is currently in-progress. This case has existing resource requirements that were previously submitted.`,
-                        type: 'GRIEVANCE_REASSIGNED',
                         grievanceId: grievance._id
                     });
                 } else {
@@ -1306,35 +1333,46 @@ export const respondToEscalation = async (req, res) => {
                     // Regular notification for new official
                     await Notification.create({
                         recipient: newAssignedTo,
-                        recipientModel: 'Official',
-                        title: `${grievance.priority} Priority Grievance Assignment`,
+                        recipientType: 'Official',
+                        type: 'CASE_REASSIGNED',
                         message: `You have been assigned grievance #${grievance.petitionId}. Please review and submit resource requirements if needed.`,
-                        type: 'GRIEVANCE_ASSIGNED',
                         grievanceId: grievance._id
                     });
                 }
-
-                // Notification for the petitioner
-                await Notification.create({
-                    recipient: grievance.petitioner._id,
-                    recipientModel: 'Petitioner',
-                    title: 'Grievance Update: Official Reassigned',
-                    message: `Your ${grievance.priority.toLowerCase()} priority grievance #${grievance.petitionId} has been reassigned to a new official${previousStatus === 'in-progress' ? ' and will continue in progress' : ''}. Admin Response: ${escalationResponse.trim()}`,
-                    type: 'GRIEVANCE_UPDATE',
-                    grievanceId: grievance._id
-                });
 
                 // Notification for the previous official
                 if (previousOfficialId) {
                     await Notification.create({
                         recipient: previousOfficialId,
-                        recipientModel: 'Official',
-                        title: 'Grievance Reassigned',
-                        message: `${grievance.priority} priority grievance #${grievance.petitionId} has been reassigned from you to ${newOfficial.firstName} ${newOfficial.lastName}.`,
-                        type: 'GRIEVANCE_REASSIGNED',
+                        recipientType: 'Official',
+                        type: 'REASSIGNMENT',
+                        message: `WARNING: Your ${grievance.priority.toLowerCase()} priority grievance #${grievance.petitionId} has been reassigned from you to ${newOfficial.firstName} ${newOfficial.lastName}. This reassignment was made by an admin.`,
                         grievanceId: grievance._id
                     });
                 }
+
+                // Notification for new official
+                await Notification.create({
+                    recipient: newAssignedTo,
+                    recipientType: 'Official',
+                    type: 'CASE_REASSIGNED',
+                    message: `You have been assigned grievance #${grievance.petitionId}${previousStatus === 'in-progress' ? ' which is currently in-progress. This case has existing resource requirements that were previously submitted.' : '. Please review and submit resource requirements if needed.'}`,
+                    grievanceId: grievance._id
+                });
+
+                // Notification for the petitioner
+                await Notification.create({
+                    recipient: grievance.petitioner._id,
+                    recipientType: 'Petitioner',
+                    type: 'CASE_REASSIGNED',
+                    message: `Your ${grievance.priority.toLowerCase()} priority grievance #${grievance.petitionId} has been reassigned to a new official${previousStatus === 'in-progress' ? ' and will continue in progress' : ''}. Admin Response: ${escalationResponse.trim()}`,
+                    grievanceId: grievance._id
+                });
+
+                // Remove the previous official from assignedOfficials array
+                grievance.assignedOfficials = grievance.assignedOfficials.filter(
+                    official => official.toString() !== previousOfficialId.toString()
+                );
 
             } catch (error) {
                 console.error('Error during reassignment:', error);
@@ -1348,10 +1386,9 @@ export const respondToEscalation = async (req, res) => {
             try {
                 await Notification.create({
                     recipient: grievance.petitioner._id,
-                    recipientModel: 'Petitioner',
-                    title: `${grievance.priority} Priority Grievance Update`,
-                    message: `Admin has addressed your escalation for grievance #${grievance.petitionId}. Response: ${escalationResponse.trim()}`,
+                    recipientType: 'Petitioner',
                     type: 'ESCALATION_RESPONSE',
+                    message: `Admin has addressed your escalation for grievance #${grievance.petitionId}. Response: ${escalationResponse.trim()}`,
                     grievanceId: grievance._id,
                     createdAt: new Date()
                 });
@@ -1360,10 +1397,9 @@ export const respondToEscalation = async (req, res) => {
                 if (grievance.assignedTo) {
                     await Notification.create({
                         recipient: grievance.assignedTo._id,
-                        recipientModel: 'Official',
-                        title: 'Escalation Response Update',
-                        message: `Admin has addressed the escalation for grievance #${grievance.petitionId} that you are handling.`,
+                        recipientType: 'Official',
                         type: 'ESCALATION_RESPONSE',
+                        message: `Admin has addressed the escalation for grievance #${grievance.petitionId} that you are handling.`,
                         grievanceId: grievance._id,
                         createdAt: new Date()
                     });
@@ -1486,10 +1522,14 @@ export const checkEligibleEscalations = async () => {
 
         console.log(`Found ${eligibleGrievances.length} grievances eligible for escalation`);
 
-        // Mark eligible grievances
+        // Find all admin users
+        const admins = await Admin.find({});
+
+        // Mark eligible grievances and notify admins
         for (const grievance of eligibleGrievances) {
             const escalationReason = determineEscalationReason(grievance, twoDaysAgo, sevenDaysAgo);
 
+            // Update grievance
             await Grievance.findByIdAndUpdate(grievance._id, {
                 $set: {
                     escalationEligible: true,
@@ -1498,17 +1538,27 @@ export const checkEligibleEscalations = async () => {
                 }
             });
 
+            // Notify all admins
+            for (const admin of admins) {
+                await createNotification(
+                    admin._id,
+                    'Admin',
+                    'ESCALATION',
+                    `A case has been automatically escalated due to: ${escalationReason}. Grievance ID: ${grievance._id}`,
+                    grievance._id
+                );
+            }
+
             console.log('Marked grievance for escalation:', {
-                id: grievance._id,
-                petitionId: grievance.petitionId,
+                grievanceId: grievance._id,
                 reason: escalationReason
             });
         }
 
         return eligibleGrievances.length;
     } catch (error) {
-        console.error('Error in checkEligibleEscalations:', error);
-        throw error;
+        console.error('Error checking for eligible escalations:', error);
+        return 0;
     }
 };
 
