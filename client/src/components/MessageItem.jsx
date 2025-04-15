@@ -1,15 +1,16 @@
-import React, { memo } from 'react';
+import React from 'react';
+import './MessageItem.css';
 
-const MessageItem = memo(({ message }) => {
+const MessageItem = ({ message }) => {
+    const { role, content } = message;
+
     return (
-        <div className={`message ${message.role}`}>
+        <div className={`message ${role}`}>
             <div className="message-content">
-                {message.content}
+                <div className="message-text">{content}</div>
             </div>
         </div>
     );
-});
+};
 
-MessageItem.displayName = 'MessageItem';
-
-export default MessageItem; 
+export default MessageItem;

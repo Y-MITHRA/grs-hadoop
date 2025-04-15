@@ -87,14 +87,21 @@ export const AuthProvider = ({ children }) => {
         const token = localStorage.getItem('token');
         const storedUser = localStorage.getItem('user');
 
+        console.log('Initial auth check:', { hasToken: !!token, hasStoredUser: !!storedUser });
+
         if (token && storedUser) {
             try {
                 const decoded = decodeToken(token);
+                console.log('Decoded token:', decoded);
+
                 if (decoded && decoded.exp * 1000 > Date.now()) {
                     // Token is valid, set user from localStorage with proper role casing
                     const parsedUser = JSON.parse(storedUser);
+                    console.log('Parsed stored user:', parsedUser);
+
                     // Ensure consistent role casing
                     parsedUser.role = parsedUser.role.charAt(0).toUpperCase() + parsedUser.role.slice(1).toLowerCase();
+                    console.log('Setting user state to:', parsedUser);
                     setUser(parsedUser);
 
                     // Check if token is expiring soon
@@ -103,7 +110,7 @@ export const AuthProvider = ({ children }) => {
                     }
                 } else {
                     // Token expired, clear everything
-                    console.log('Token expired, logging out');
+                    console.log('Token expired or invalid, logging out');
                     logout();
                 }
             } catch (error) {
@@ -112,6 +119,7 @@ export const AuthProvider = ({ children }) => {
             }
         } else {
             // No token or user data found
+            console.log('No auth data found, setting user to null');
             setUser(null);
         }
         setLoading(false);
@@ -134,6 +142,8 @@ export const AuthProvider = ({ children }) => {
                 endpoint = '/api/auth/petitioner/login';
             }
 
+            console.log('Attempting login:', { email, endpoint });
+
             // Extract email if it's an object
             const emailValue = typeof email === 'object' ? email.email : email;
 
@@ -152,6 +162,7 @@ export const AuthProvider = ({ children }) => {
             });
 
             const data = await response.json();
+            console.log('Login response:', { success: response.ok, data });
 
             if (!response.ok) {
                 throw new Error(data.error || 'Login failed');
@@ -159,34 +170,27 @@ export const AuthProvider = ({ children }) => {
 
             // Store token in localStorage
             if (data.token) {
+                console.log('Storing auth data...');
                 localStorage.setItem('token', data.token);
                 // Ensure user role is properly cased
                 const userData = {
                     ...data.user,
                     role: data.user.role.charAt(0).toUpperCase() + data.user.role.slice(1).toLowerCase()
                 };
+                console.log('Processed user data:', userData);
+
                 // Store user data in localStorage
                 localStorage.setItem('user', JSON.stringify(userData));
-                // Store email and employeeId for department officials
-                if (userData.role === 'Official') {
-                    localStorage.setItem('email', emailValue);
-                    if (employeeId) {
-                        localStorage.setItem('employeeId', employeeId);
-                    }
-                }
                 // Set user in state
+                console.log('Setting user state:', userData);
                 setUser(userData);
+
+                // Navigate based on role
+                const redirectPath = getRedirectPath(userData.role.toLowerCase(), userData.department);
+                console.log('Redirecting to:', redirectPath);
+                navigate(redirectPath);
             } else {
                 throw new Error('No token received from server');
-            }
-
-            // Navigate based on role
-            if (data.user.role.toLowerCase() === 'petitioner') {
-                navigate(getRedirectPath('petitioner'));
-            } else if (data.user.role.toLowerCase() === 'official') {
-                navigate(getRedirectPath('official', data.user.department));
-            } else if (data.user.role.toLowerCase() === 'admin') {
-                navigate(getRedirectPath('admin'));
             }
 
             return data;
