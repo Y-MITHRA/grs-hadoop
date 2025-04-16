@@ -34,7 +34,7 @@ const SmartQueryChatbot = () => {
                 setIsAuthenticated(false);
                 setError('Your session has expired or is invalid. Please log in again.');
                 localStorage.setItem('redirectAfterLogin', location.pathname);
-                localStorage.removeItem('token');
+                localStorage.removeItem('token'); // Clear invalid token
                 navigate('/login');
                 return;
             }
@@ -127,11 +127,14 @@ const SmartQueryChatbot = () => {
 
             // Add assistant response to chat
             if (response.data.response) {
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: response.data.response
-                };
+                const assistantMessage = { role: 'assistant', content: response.data.response };
                 addMessage(assistantMessage);
+
+                // Save the message to history
+                await api.post('/smart-query/messages', {
+                    content,
+                    role: 'user'
+                });
             }
         } catch (error) {
             console.error('Error processing query:', error);
@@ -172,14 +175,28 @@ const SmartQueryChatbot = () => {
     };
 
     const handleClearChat = async () => {
+        if (!isAuthenticated) {
+            setError('Please log in to clear chat history');
+            return;
+        }
+
         try {
             setLoading(true);
-            await api.delete('/smart-query/messages');
-            updateMessages([]);
             setError(null);
+
+            const response = await api.delete('/smart-query/messages');
+            console.log('Clear chat response:', response);
+
+            if (response.data.success) {
+                setMessages([]);
+                messagesRef.current = [];
+                focusInput();
+            } else {
+                throw new Error(response.data.error || 'Failed to clear chat');
+            }
         } catch (error) {
             console.error('Error clearing chat:', error);
-            setError('Failed to clear chat history');
+            setError(error.response?.data?.error || 'Failed to clear chat history');
         } finally {
             setLoading(false);
         }
@@ -187,34 +204,36 @@ const SmartQueryChatbot = () => {
 
     return (
         <div className="smart-query-chatbot">
-            <div className="chat-header">
-                <div className="header-content">
-                    <h2>Smart Query Assistant</h2>
-                    <p>Ask questions about grievances, resources, and escalations in natural language</p>
-                </div>
-                <button
-                    className="clear-chat-button"
-                    onClick={handleClearChat}
-                    disabled={loading || !isAuthenticated || messages.length === 0}
-                >
-                    Clear Chat
-                </button>
-                {error && (
-                    <div className="error-message">
-                        <span>{error}</span>
-                        {(!isAuthenticated || error.includes('log in')) && (
-                            <button
-                                className="login-button"
-                                onClick={() => {
-                                    localStorage.setItem('redirectAfterLogin', location.pathname);
-                                    navigate('/login');
-                                }}
-                            >
-                                Log In
-                            </button>
-                        )}
+            <div className="chat-header-container">
+                <div className="chat-header">
+                    <div className="header-content">
+                        <h2>Smart Query Assistant</h2>
+                        <p>Ask questions about grievances, resources, and escalations in natural language</p>
+                        <button
+                            className="clear-chat-button"
+                            onClick={handleClearChat}
+                            disabled={loading || !isAuthenticated || messages.length === 0}
+                        >
+                            {loading ? 'Clearing...' : 'Clear Chat'}
+                        </button>
                     </div>
-                )}
+                    {error && (
+                        <div className="error-message">
+                            <span>{error}</span>
+                            {(!isAuthenticated || error.includes('log in')) && (
+                                <button
+                                    className="login-button"
+                                    onClick={() => {
+                                        localStorage.setItem('redirectAfterLogin', location.pathname);
+                                        navigate('/login');
+                                    }}
+                                >
+                                    Log In
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="chat-messages">

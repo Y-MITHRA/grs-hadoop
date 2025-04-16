@@ -1365,7 +1365,7 @@ export const respondToEscalation = async (req, res) => {
                     recipient: grievance.petitioner._id,
                     recipientType: 'Petitioner',
                     type: 'CASE_REASSIGNED',
-                    message: `Your ${grievance.priority.toLowerCase()} priority grievance #${grievance.petitionId} has been reassigned to a new official${previousStatus === 'in-progress' ? ' and will continue in progress' : ''}. Admin Response: ${escalationResponse.trim()}`,
+                    message: `Your grievance #${grievance.petitionId} has been reassigned to a new official${previousStatus === 'in-progress' ? ' and will continue in progress' : ''}. Admin Response: ${escalationResponse.trim()}`,
                     grievanceId: grievance._id
                 });
 
@@ -1420,7 +1420,7 @@ export const respondToEscalation = async (req, res) => {
 
         // Add timeline entry for escalation response
         grievance.timelineStages.push({
-            stageName: 'Resolution',
+            stageName: 'Escalation Resolution',
             date: new Date(),
             description: `Escalation addressed by Admin with response: ${escalationResponse.trim()}`
         });

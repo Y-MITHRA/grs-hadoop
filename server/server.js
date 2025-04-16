@@ -32,7 +32,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
         origin: ["http://localhost:3000", "http://localhost:5173"],
-        methods: ["GET", "POST"]
+        methods: ["GET", "POST", "DELETE"]
     }
 });
 
@@ -68,6 +68,7 @@ cron.schedule('* * * * *', async () => {
 app.use(express.json());
 app.use(cors({
     origin: ["http://localhost:3000", "http://localhost:5173"],
+    methods: ['GET', 'POST', 'DELETE'],
     credentials: true
 }));
 app.use('/uploads', express.static('uploads')); // Serve uploaded files

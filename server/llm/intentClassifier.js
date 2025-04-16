@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
+    model: "gemini-pro",
     generationConfig: {
         temperature: 0.3,
         topP: 0.8,
@@ -40,56 +40,41 @@ const CASUAL_PATTERNS = {
     ]
 };
 
-export async function generateResponse(query, intent, results = [], parameters = {}, context = []) {
+export async function generateResponse(query, intent, results = [], parameters = {}) {
     try {
         let prompt = '';
-        const contextString = context.map(msg => `${msg.role}: ${msg.content}`).join('\n');
 
         switch (intent) {
             case INTENTS.GREETING:
-                prompt = `You are a helpful Grievance Redressal System assistant. Consider the following chat history and respond to the greeting in a friendly and professional manner:
-
-Previous messages:
-${contextString}
-
-Current query: "${query}"`;
+                prompt = `You are a helpful Grievance Redressal System assistant. Respond to this greeting in a friendly and professional manner:
+                "${query}"`;
                 break;
 
             case INTENTS.THANKS:
-                prompt = `You are a helpful Grievance Redressal System assistant. Consider the following chat history and respond to this expression of thanks in a polite and professional manner:
-
-Previous messages:
-${contextString}
-
-Current query: "${query}"`;
+                prompt = `You are a helpful Grievance Redressal System assistant. Respond to this expression of thanks in a polite and professional manner:
+                "${query}"`;
                 break;
 
             case INTENTS.HELP:
-                prompt = `You are a helpful Grievance Redressal System assistant. Consider the following chat history and explain your capabilities in a clear and concise way. Mention that you can help with:
+                prompt = `You are a helpful Grievance Redressal System assistant. Explain your capabilities in a clear and concise way. Mention that you can help with:
                 1. Checking grievance status
                 2. Resource management queries
                 3. Priority analysis
                 4. Escalation summaries
                 5. Detailed grievance information
-
-Previous messages:
-${contextString}
-
-Current query: "${query}"`;
+                
+                Query: "${query}"`;
                 break;
 
             default:
-                prompt = `You are a helpful Grievance Redressal System assistant. Based on the following information and chat history, provide a clear and helpful response:
-
-Previous messages:
-${contextString}
-
-Current query: "${query}"
-Intent: ${intent}
-Results: ${JSON.stringify(results, null, 2)}
-Parameters: ${JSON.stringify(parameters, null, 2)}
-
-Provide a natural, conversational response that addresses the user's query, takes into account the previous conversation context, and includes relevant information from the results.`;
+                prompt = `You are a helpful Grievance Redressal System assistant. Based on the following information, provide a clear and helpful response:
+                
+                Query: "${query}"
+                Intent: ${intent}
+                Results: ${JSON.stringify(results, null, 2)}
+                Parameters: ${JSON.stringify(parameters, null, 2)}
+                
+                Provide a natural, conversational response that addresses the user's query and includes relevant information from the results.`;
         }
 
         const result = await model.generateContent(prompt);
@@ -138,48 +123,39 @@ export function extractParameters(query, intent) {
     const queryLower = query.toLowerCase();
 
     // Extract department
-    const departments = ['water', 'electricity', 'rto'];
+    const departments = ['water', 'electricity', 'rto', 'health', 'education'];
     for (const dept of departments) {
         if (queryLower.includes(dept)) {
-            parameters.department = dept.charAt(0).toUpperCase() + dept.slice(1);
+            parameters.department = dept;
             break;
         }
     }
 
     // Extract location
-    const locations = ['kanchipuram', 'madurai', 'salem', 'coimbatore', 'tirunelveli', 'tambaram', 'chennai'];
+    const locations = ['kanchipuram', 'madurai', 'salem', 'coimbatore', 'tirunelveli'];
     for (const loc of locations) {
         if (queryLower.includes(loc)) {
-            parameters.location = loc.charAt(0).toUpperCase() + loc.slice(1);
+            parameters.location = loc;
             break;
         }
     }
 
     // Extract priority
     if (queryLower.includes('high priority')) {
-        parameters.priority = 'High';
+        parameters.priority = 'high';
     } else if (queryLower.includes('medium priority')) {
-        parameters.priority = 'Medium';
+        parameters.priority = 'medium';
     } else if (queryLower.includes('low priority')) {
-        parameters.priority = 'Low';
+        parameters.priority = 'low';
     }
 
     // Extract status
     if (queryLower.includes('resolved')) {
-        parameters.status = 'Resolved';
+        parameters.status = 'resolved';
     } else if (queryLower.includes('pending')) {
-        parameters.status = 'Pending';
-    } else if (queryLower.includes('in progress') || queryLower.includes('inprogress')) {
-        parameters.status = 'In Progress';
-    }
-
-    // Extract zone
-    const zones = ['north', 'south', 'east', 'west', 'central'];
-    for (const zone of zones) {
-        if (queryLower.includes(zone)) {
-            parameters.zone = zone.charAt(0).toUpperCase() + zone.slice(1);
-            break;
-        }
+        parameters.status = 'pending';
+    } else if (queryLower.includes('in progress')) {
+        parameters.status = 'in-progress';
     }
 
     return parameters;
