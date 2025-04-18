@@ -28,7 +28,8 @@ import {
     escalateGrievance,
     getEscalatedGrievances,
     respondToEscalation,
-    analyzePriorityWithGemini
+    analyzePriorityWithGemini,
+    checkRepetitiveCases
 } from '../controllers/grievanceController.js';
 import { processDocument, upload } from '../controllers/documentController.js';
 import Grievance from '../models/Grievance.js';
@@ -129,6 +130,9 @@ router.post('/:id/escalation-response', auth, respondToEscalation);
 
 // Analyze priority using Gemini AI
 router.post('/analyze-priority', auth, analyzePriorityWithGemini);
+
+// Check for repetitive cases
+router.get('/:id/repetitive-cases', auth, checkRepetitiveCases);
 
 router.get('/track/:id', async (req, res) => {
     try {

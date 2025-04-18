@@ -1720,3 +1720,109 @@ export const analyzePriorityWithGemini = async (req, res) => {
         });
     }
 };
+
+// Function to calculate cosine similarity between two vectors
+function cosineSimilarity(vec1, vec2) {
+    const dotProduct = vec1.reduce((acc, val, i) => acc + val * vec2[i], 0);
+    const norm1 = Math.sqrt(vec1.reduce((acc, val) => acc + val * val, 0));
+    const norm2 = Math.sqrt(vec2.reduce((acc, val) => acc + val * val, 0));
+    return dotProduct / (norm1 * norm2);
+}
+
+// Function to check for repetitive cases
+export const checkRepetitiveCases = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { similarityThreshold = 0.8 } = req.query;
+        
+        // Find the current grievance
+        const currentGrievance = await Grievance.findById(id);
+        if (!currentGrievance) {
+            return res.status(404).json({ error: 'Grievance not found' });
+        }
+        
+        // Find all grievances with the same division, district, and taluk
+        const locationMatches = await Grievance.find({
+            _id: { $ne: currentGrievance._id }, // Exclude self
+            division: currentGrievance.division,
+            district: currentGrievance.district,
+            taluk: currentGrievance.taluk
+        }).select('_id petitionId title description division district taluk createdAt status');
+        
+        if (locationMatches.length === 0) {
+            return res.json({ 
+                hasRepetitiveCases: false,
+                message: 'No grievances found in the same location'
+            });
+        }
+        
+        // For each location match, calculate description similarity
+        const repetitiveCases = [];
+        
+        for (const grievance of locationMatches) {
+            // Simple text similarity calculation (can be replaced with more sophisticated NLP)
+            const similarity = calculateTextSimilarity(
+                currentGrievance.description,
+                grievance.description
+            );
+            
+            if (similarity >= parseFloat(similarityThreshold)) {
+                repetitiveCases.push({
+                    ...grievance.toObject(),
+                    similarity
+                });
+            }
+        }
+        
+        return res.json({
+            hasRepetitiveCases: repetitiveCases.length > 0,
+            repetitiveCases,
+            currentGrievance: {
+                _id: currentGrievance._id,
+                petitionId: currentGrievance.petitionId,
+                title: currentGrievance.title,
+                description: currentGrievance.description,
+                division: currentGrievance.division,
+                district: currentGrievance.district,
+                taluk: currentGrievance.taluk
+            }
+        });
+    } catch (error) {
+        console.error('Error checking repetitive cases:', error);
+        return res.status(500).json({ error: 'Failed to check repetitive cases' });
+    }
+};
+
+// Simple text similarity calculation
+function calculateTextSimilarity(text1, text2) {
+    // Convert to lowercase and split into words
+    const words1 = text1.toLowerCase().split(/\s+/);
+    const words2 = text2.toLowerCase().split(/\s+/);
+    
+    // Create word frequency vectors
+    const wordFreq1 = {};
+    const wordFreq2 = {};
+    
+    words1.forEach(word => {
+        wordFreq1[word] = (wordFreq1[word] || 0) + 1;
+    });
+    
+    words2.forEach(word => {
+        wordFreq2[word] = (wordFreq2[word] || 0) + 1;
+    });
+    
+    // Get all unique words
+    const allWords = new Set([...Object.keys(wordFreq1), ...Object.keys(wordFreq2)]);
+    
+    // Create vectors
+    const vec1 = [];
+    const vec2 = [];
+    
+    allWords.forEach(word => {
+        vec1.push(wordFreq1[word] || 0);
+        vec2.push(wordFreq2[word] || 0);
+    });
+    
+    // Calculate cosine similarity
+    return cosineSimilarity(vec1, vec2);
+}

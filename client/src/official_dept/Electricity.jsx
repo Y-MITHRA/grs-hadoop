@@ -9,6 +9,7 @@ import ChatComponent from '../components/ChatComponent';
 import "../styles/Chat.css";
 import NotificationBell from '../components/NotificationBell';
 import { Dropdown } from 'react-bootstrap';
+import RepeatedCaseIndicator from '../components/RepeatedCaseIndicator';
 
 const ElectricityDashboard = () => {
   const navigate = useNavigate();
@@ -559,6 +560,11 @@ const ElectricityDashboard = () => {
               <span className={getPriorityBadgeClass(grievance.priority)}>
                 {grievance.priority || 'Not set'}
               </span>
+              <RepeatedCaseIndicator
+                currentGrievance={grievance}
+                previousGrievances={grievances[activeTab]}
+                onGrievanceClick={(g) => setSelectedGrievance(g)}
+              />
             </div>
             <div className="text-sm text-gray-600 space-y-1">
               <p className="flex items-center gap-2">
