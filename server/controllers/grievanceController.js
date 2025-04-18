@@ -812,7 +812,7 @@ export const submitFeedback = async (req, res) => {
             return res.status(400).json({ error: 'Can only submit feedback for resolved grievances' });
         }
 
-        if (grievance.feedback) {
+        if (grievance.feedback && grievance.feedback.rating) {
             return res.status(400).json({ error: 'Feedback already submitted' });
         }
 
@@ -1282,7 +1282,6 @@ export const respondToEscalation = async (req, res) => {
 
         // Update grievance fields
         grievance.escalationResponse = escalationResponse.trim();
-        // Do NOT change the priority - preserve the original priority
 
         // Handle reassignment
         if (isReassignment && newAssignedTo) {
@@ -1359,15 +1358,6 @@ export const respondToEscalation = async (req, res) => {
                     });
                 }
 
-                // Notification for new official
-                await Notification.create({
-                    recipient: newAssignedTo,
-                    recipientType: 'Official',
-                    type: 'CASE_REASSIGNED',
-                    message: `You have been assigned grievance #${grievance.petitionId}${previousStatus === 'in-progress' ? ' which is currently in-progress. This case has existing resource requirements that were previously submitted.' : '. Please review and submit resource requirements if needed.'}`,
-                    grievanceId: grievance._id
-                });
-
                 // Notification for the petitioner
                 await Notification.create({
                     recipient: grievance.petitioner._id,
@@ -1381,7 +1371,6 @@ export const respondToEscalation = async (req, res) => {
                 grievance.assignedOfficials = grievance.assignedOfficials.filter(
                     official => official.toString() !== previousOfficialId.toString()
                 );
-
             } catch (error) {
                 console.error('Error during reassignment:', error);
                 return res.status(500).json({
@@ -1420,7 +1409,7 @@ export const respondToEscalation = async (req, res) => {
 
         // Add escalation response to timeline
         grievance.statusHistory.push({
-            status: 'assigned',
+            status: grievance.status, // Use current status
             updatedBy: adminId,
             updatedByType: 'admin',
             comment: `Admin responded to escalation: ${escalationResponse.trim()}`
@@ -1428,29 +1417,22 @@ export const respondToEscalation = async (req, res) => {
 
         // Add timeline entry for escalation response
         grievance.timelineStages.push({
-            stageName: 'Escalation Resolution',
+            stageName: 'Resolution',
             date: new Date(),
             description: `Escalation addressed by Admin with response: ${escalationResponse.trim()}`
         });
 
-        try {
-            await grievance.save();
-        } catch (saveError) {
-            console.error('Error saving grievance:', saveError);
-            return res.status(500).json({
-                error: 'Failed to save grievance updates',
-                details: saveError.message
-            });
-        }
+        // Save the updated grievance
+        await grievance.save();
 
-        res.status(200).json({
+        res.json({
             message: 'Escalation response submitted successfully',
             grievance
         });
     } catch (error) {
         console.error('Error responding to escalation:', error);
         res.status(500).json({
-            error: 'Failed to submit escalation response',
+            error: 'Failed to save grievance update',
             details: error.message
         });
     }
@@ -1734,13 +1716,13 @@ export const checkRepetitiveCases = async (req, res) => {
     try {
         const { id } = req.params;
         const { similarityThreshold = 0.8 } = req.query;
-        
+
         // Find the current grievance
         const currentGrievance = await Grievance.findById(id);
         if (!currentGrievance) {
             return res.status(404).json({ error: 'Grievance not found' });
         }
-        
+
         // Find all grievances with the same division, district, and taluk
         const locationMatches = await Grievance.find({
             _id: { $ne: currentGrievance._id }, // Exclude self
@@ -1748,24 +1730,24 @@ export const checkRepetitiveCases = async (req, res) => {
             district: currentGrievance.district,
             taluk: currentGrievance.taluk
         }).select('_id petitionId title description division district taluk createdAt status');
-        
+
         if (locationMatches.length === 0) {
-            return res.json({ 
+            return res.json({
                 hasRepetitiveCases: false,
                 message: 'No grievances found in the same location'
             });
         }
-        
+
         // For each location match, calculate description similarity
         const repetitiveCases = [];
-        
+
         for (const grievance of locationMatches) {
             // Simple text similarity calculation (can be replaced with more sophisticated NLP)
             const similarity = calculateTextSimilarity(
                 currentGrievance.description,
                 grievance.description
             );
-            
+
             if (similarity >= parseFloat(similarityThreshold)) {
                 repetitiveCases.push({
                     ...grievance.toObject(),
@@ -1773,7 +1755,7 @@ export const checkRepetitiveCases = async (req, res) => {
                 });
             }
         }
-        
+
         return res.json({
             hasRepetitiveCases: repetitiveCases.length > 0,
             repetitiveCases,
@@ -1798,31 +1780,31 @@ function calculateTextSimilarity(text1, text2) {
     // Convert to lowercase and split into words
     const words1 = text1.toLowerCase().split(/\s+/);
     const words2 = text2.toLowerCase().split(/\s+/);
-    
+
     // Create word frequency vectors
     const wordFreq1 = {};
     const wordFreq2 = {};
-    
+
     words1.forEach(word => {
         wordFreq1[word] = (wordFreq1[word] || 0) + 1;
     });
-    
+
     words2.forEach(word => {
         wordFreq2[word] = (wordFreq2[word] || 0) + 1;
     });
-    
+
     // Get all unique words
     const allWords = new Set([...Object.keys(wordFreq1), ...Object.keys(wordFreq2)]);
-    
+
     // Create vectors
     const vec1 = [];
     const vec2 = [];
-    
+
     allWords.forEach(word => {
         vec1.push(wordFreq1[word] || 0);
         vec2.push(wordFreq2[word] || 0);
     });
-    
+
     // Calculate cosine similarity
     return cosineSimilarity(vec1, vec2);
 }
