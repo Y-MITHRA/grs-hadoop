@@ -812,7 +812,7 @@ export const submitFeedback = async (req, res) => {
             return res.status(400).json({ error: 'Can only submit feedback for resolved grievances' });
         }
 
-        if (grievance.feedback && grievance.feedback.rating) {
+        if (grievance.feedback) {
             return res.status(400).json({ error: 'Feedback already submitted' });
         }
 
@@ -1417,7 +1417,7 @@ export const respondToEscalation = async (req, res) => {
 
         // Add timeline entry for escalation response
         grievance.timelineStages.push({
-            stageName: 'Resolution',
+            stageName: 'Escalation Resolution',
             date: new Date(),
             description: `Escalation addressed by Admin with response: ${escalationResponse.trim()}`
         });

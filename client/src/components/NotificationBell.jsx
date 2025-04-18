@@ -173,10 +173,42 @@ const NotificationBell = ({ userId, userRole }) => {
     return (
         <div className="notification-bell position-relative" ref={dropdownRef}>
             <Dropdown show={show} onToggle={(isOpen) => setShow(isOpen)}>
-                <Dropdown.Toggle variant="link" className="text-white p-0 border-0">
+                <Dropdown.Toggle
+                    variant="link"
+                    className="text-white p-2 border-0 d-flex align-items-center justify-content-center notification-toggle"
+                    style={{
+                        backgroundColor: show ? 'rgba(0, 0, 0, 0.2)' : 'transparent',
+                        borderRadius: '4px',
+                        transition: 'background-color 0.2s ease',
+                    }}
+                >
+                    <style>
+                        {`
+                        .notification-toggle:hover {
+                            background-color: rgba(0, 0, 0, 0.1) !important;
+                        }
+                        `}
+                    </style>
                     <Bell size={24} />
                     {unreadCount > 0 && (
-                        <Badge bg="danger" className="position-absolute top-0 start-100 translate-middle rounded-pill">
+                        <Badge
+                            bg="danger"
+                            className="position-absolute"
+                            style={{
+                                top: '0',
+                                right: '0',
+                                transform: 'translate(50%, -50%)',
+                                fontSize: '0.7rem',
+                                padding: '0.25rem 0.4rem',
+                                borderRadius: '50%',
+                                minWidth: '18px',
+                                height: '18px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginTop: '-2px'
+                            }}
+                        >
                             {unreadCount}
                         </Badge>
                     )}

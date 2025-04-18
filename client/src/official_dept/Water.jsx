@@ -18,6 +18,7 @@ const WaterDashboard = () => {
   const [email, setEmail] = useState("");
   const [activeTab, setActiveTab] = useState("pending");
   const [searchQuery, setSearchQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
   const [grievances, setGrievances] = useState({
     pending: [],
     assigned: [],
@@ -93,7 +94,7 @@ const WaterDashboard = () => {
 
     // Fetch initial data
     fetchGrievances();
-  }, [user, activeTab]);
+  }, [user, activeTab, priorityFilter]);
 
   const analyzePriorityLocally = (grievance) => {
     const description = grievance.description?.toLowerCase() || '';
@@ -159,11 +160,14 @@ const WaterDashboard = () => {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(`http://localhost:5000/api/grievances/department/Water/${activeTab}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
+      const response = await fetch(
+        `http://localhost:5000/api/grievances/department/Water/${activeTab}${priorityFilter ? `?priority=${priorityFilter}` : ''}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         }
-      });
+      );
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -228,9 +232,15 @@ const WaterDashboard = () => {
         }
       }));
 
+      // Apply client-side filtering for priority
+      const filteredGrievances = processedGrievances.filter(grievance => {
+        if (!priorityFilter) return true;
+        return grievance.priority?.toLowerCase() === priorityFilter.toLowerCase();
+      });
+
       setGrievances(prev => ({
         ...prev,
-        [activeTab]: processedGrievances
+        [activeTab]: filteredGrievances
       }));
 
       if (data.stats) {
@@ -458,8 +468,9 @@ const WaterDashboard = () => {
   };
 
   const filteredGrievances = grievances[activeTab].filter(grievance =>
-    (grievance?.petitionId?.toLowerCase() || grievance?.grievanceId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-    (grievance?.title?.toLowerCase() || '').includes(searchQuery.toLowerCase())
+    (grievance?.petitionId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (grievance?.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (grievance?.description?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   );
 
   const renderDetailsModal = () => {
@@ -743,17 +754,33 @@ const WaterDashboard = () => {
 
         {/* Search Bar */}
         <div className="search-container mb-4">
-          <div className="input-group">
-            <span className="input-group-text">
-              <FaSearch />
-            </span>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Search grievances..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+          <div className="row">
+            <div className="col-md-8">
+              <div className="input-group">
+                <span className="input-group-text">
+                  <FaSearch />
+                </span>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search grievances..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="col-md-4">
+              <select
+                className="form-select"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+              >
+                <option value="">All Priorities</option>
+                <option value="High">High Priority</option>
+                <option value="Medium">Medium Priority</option>
+                <option value="Low">Low Priority</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -815,10 +842,10 @@ const WaterDashboard = () => {
                   <div className="loading">Loading...</div>
                 ) : error ? (
                   <div className="error">{error}</div>
-                ) : grievances[activeTab].length === 0 ? (
+                ) : filteredGrievances.length === 0 ? (
                   <div className="no-grievances">No grievances found</div>
                 ) : (
-                  grievances[activeTab].map((grievance) => renderGrievanceCard(grievance))
+                  filteredGrievances.map((grievance) => renderGrievanceCard(grievance))
                 )}
               </div>
             </div>

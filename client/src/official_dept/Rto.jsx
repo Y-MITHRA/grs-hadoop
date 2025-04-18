@@ -18,6 +18,7 @@ const RtoDashboard = () => {
   const [email, setEmail] = useState("");
   const [activeTab, setActiveTab] = useState("pending");
   const [searchQuery, setSearchQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
   const [grievances, setGrievances] = useState({
     pending: [],
     assigned: [],
@@ -93,7 +94,7 @@ const RtoDashboard = () => {
 
     // Fetch initial data
     fetchGrievances();
-  }, [user, activeTab]);
+  }, [user, activeTab, priorityFilter]);
 
   const analyzePriorityLocally = (grievance) => {
     const description = grievance.description?.toLowerCase() || '';
@@ -159,11 +160,14 @@ const RtoDashboard = () => {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(`http://localhost:5000/api/grievances/department/RTO/${activeTab}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
+      const response = await fetch(
+        `http://localhost:5000/api/grievances/department/RTO/${activeTab}${priorityFilter ? `?priority=${priorityFilter}` : ''}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         }
-      });
+      );
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -175,10 +179,6 @@ const RtoDashboard = () => {
       }
 
       const data = await response.json();
-
-      // --- DEBUG LOGGING START ---
-      console.log(`[Rto.jsx] Raw data for ${activeTab}:`, data.grievances);
-      // --- DEBUG LOGGING END ---
 
       // Process grievances with priority analysis
       const processedGrievances = await Promise.all(data.grievances.map(async (grievance) => {
@@ -218,9 +218,6 @@ const RtoDashboard = () => {
           console.error('Error analyzing priority:', error);
           // Fallback to local analysis if API fails
           const localPriorityData = analyzePriorityLocally(grievance);
-          // --- DEBUG LOGGING START ---
-          console.log(`[Rto.jsx] Fallback for grievance ${grievance._id || 'N/A'}:`, localPriorityData);
-          // --- DEBUG LOGGING END ---
           return {
             ...grievance,
             grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
@@ -235,13 +232,15 @@ const RtoDashboard = () => {
         }
       }));
 
-      // --- DEBUG LOGGING START ---
-      console.log(`[Rto.jsx] Processed grievances for ${activeTab}:`, processedGrievances);
-      // --- DEBUG LOGGING END ---
+      // Apply client-side filtering as a fallback
+      const filteredGrievances = processedGrievances.filter(grievance => {
+        if (!priorityFilter) return true;
+        return grievance.priority?.toLowerCase() === priorityFilter.toLowerCase();
+      });
 
       setGrievances(prev => ({
         ...prev,
-        [activeTab]: processedGrievances
+        [activeTab]: filteredGrievances
       }));
 
       if (data.stats) {
@@ -759,17 +758,33 @@ const RtoDashboard = () => {
 
         {/* Search Bar */}
         <div className="search-container mb-4">
-          <div className="input-group">
-            <span className="input-group-text">
-              <FaSearch />
-            </span>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Search grievances..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+          <div className="row">
+            <div className="col-md-8">
+              <div className="input-group">
+                <span className="input-group-text">
+                  <FaSearch />
+                </span>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Search grievances..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="col-md-4">
+              <select
+                className="form-select"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+              >
+                <option value="">All Priorities</option>
+                <option value="High">High Priority</option>
+                <option value="Medium">Medium Priority</option>
+                <option value="Low">Low Priority</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -844,7 +859,7 @@ const RtoDashboard = () => {
         </div>
       </div>
 
-      {/* Decline Modal */}
+      {/* Modals */}
       {showDeclineModal && selectedGrievance && (
         <div className="modal">
           <div className="modal-content">
@@ -878,7 +893,6 @@ const RtoDashboard = () => {
         </div>
       )}
 
-      {/* Resource Modal */}
       {showResourceModal && selectedGrievance && (
         <div className="modal">
           <div className="modal-content">
@@ -956,7 +970,6 @@ const RtoDashboard = () => {
         </div>
       )}
 
-      {/* Timeline Modal */}
       {showTimelineModal && selectedGrievance && (
         <div className="modal">
           <div className="modal-content">
@@ -1025,7 +1038,7 @@ const RtoDashboard = () => {
                     setShowChat(false);
                     setSelectedGrievance(null);
                   }}
-                ></button>
+                />
               </div>
               <div className="modal-body" style={{ height: '500px', padding: 0 }}>
                 <ChatComponent
