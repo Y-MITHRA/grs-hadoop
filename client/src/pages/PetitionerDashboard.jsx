@@ -415,7 +415,7 @@ const PetitionerDashboard = () => {
                                         <td>{moment(grievance.updatedAt).format('MMM D, YYYY')}</td>
                                         <td>
                                             <div className="d-flex gap-2">
-                                                {grievance.assignedTo && grievance.status === 'in-progress' && (
+                                                {(grievance.status === 'assigned' || grievance.status === 'in-progress') && grievance.assignedTo && (
                                                     <button
                                                         className="btn btn-sm btn-primary"
                                                         onClick={() => handleViewChat(grievance)}

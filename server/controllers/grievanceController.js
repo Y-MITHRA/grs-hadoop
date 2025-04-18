@@ -336,7 +336,7 @@ export const createGrievance = async (req, res) => {
             await Notification.create({
                 recipient: official._id,
                 recipientType: 'Official',
-                type: 'HIGH_PRIORITY',
+                type: 'NEW_GRIEVANCE',
                 message: `A new grievance has been submitted in your jurisdiction (${taluk}, ${district}, ${division}). Please review and accept if you can handle it.`,
                 grievanceId: grievance._id
             });
@@ -361,7 +361,7 @@ export const getDepartmentGrievances = async (req, res) => {
         const { department, status } = req.params;
         const officialId = req.user.id;
 
-        console.log('Fetching department grievances:', {
+        console.log('[getDepartmentGrievances] Fetching for:', {
             department,
             status,
             officialId
@@ -373,6 +373,13 @@ export const getDepartmentGrievances = async (req, res) => {
             return res.status(404).json({ error: 'Official not found' });
         }
 
+        console.log('[getDepartmentGrievances] Official Jurisdiction:', {
+            taluk: official.taluk,
+            district: official.district,
+            division: official.division,
+            officialDept: official.department
+        });
+
         // Build query with jurisdiction
         const query = {
             department,
@@ -383,7 +390,10 @@ export const getDepartmentGrievances = async (req, res) => {
 
         if (status === 'pending') {
             query.status = 'pending';
-            query.assignedTo = null;
+            query.$or = [
+                { assignedTo: null, assignedOfficials: officialId },
+                { assignedTo: null, assignedOfficials: { $exists: true, $size: 0 } }
+            ];
         } else if (status === 'assigned') {
             query.status = 'assigned';
             query.assignedTo = officialId;
@@ -1014,7 +1024,7 @@ export const findNearestOfficeByCoordinates = async (req, res) => {
 // Upload document and create grievance
 export const uploadDocumentAndCreateGrievance = async (req, res) => {
     try {
-        const { department, location, coordinates } = req.body;
+        const { department, location, coordinates, taluk, division, district } = req.body;
         const petitioner = req.user.id;
 
         if (!req.file) {
@@ -1022,13 +1032,16 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         }
 
         // Validate required fields
-        if (!department || !location || !coordinates) {
+        if (!department || !location || !coordinates || !taluk || !division || !district) {
             return res.status(400).json({
                 error: 'Missing required fields',
                 missingFields: {
                     department: !department,
                     location: !location,
-                    coordinates: !coordinates
+                    coordinates: !coordinates,
+                    taluk: !taluk,
+                    division: !division,
+                    district: !district
                 }
             });
         }
@@ -1036,39 +1049,28 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         // Parse coordinates if they're sent as a string
         const parsedCoordinates = typeof coordinates === 'string' ? JSON.parse(coordinates) : coordinates;
 
-        // Find nearest office and its officials
-        const officials = await Official.find({ department });
-        let minDistance = Infinity;
-        let nearestOfficeCoordinates = null;
-
-        // Find the nearest office
-        officials.forEach(official => {
-            const distance = calculateDistance(
-                parsedCoordinates.latitude,
-                parsedCoordinates.longitude,
-                official.officeCoordinates.latitude,
-                official.officeCoordinates.longitude
-            );
-
-            if (distance < minDistance) {
-                minDistance = distance;
-                nearestOfficeCoordinates = official.officeCoordinates;
-            }
+        // Find officials in the specified jurisdiction
+        console.log('[uploadDocument] Finding officials with criteria:', {
+            department,
+            taluk,
+            division,
+            district
+        });
+        const matchingOfficials = await Official.find({
+            department,
+            taluk,
+            division,
+            district
         });
 
-        if (!nearestOfficeCoordinates) {
-            return res.status(404).json({ error: 'No officials found for the specified department' });
+        if (matchingOfficials.length === 0) {
+            return res.status(404).json({ error: 'No officials found for the specified jurisdiction' });
         }
 
-        // Get all officials in that office
-        const nearestOfficeOfficials = officials.filter(official =>
-            official.officeCoordinates.latitude === nearestOfficeCoordinates.latitude &&
-            official.officeCoordinates.longitude === nearestOfficeCoordinates.longitude
-        );
-
-        console.log('Nearest office officials:', nearestOfficeOfficials.map(o => ({
+        console.log('Found matching officials:', matchingOfficials.map(o => ({
             id: o._id,
-            name: `${o.firstName} ${o.lastName}`
+            name: `${o.firstName} ${o.lastName}`,
+            jurisdiction: `${o.taluk}, ${o.division}, ${o.district}`
         })));
 
         // Create new grievance with document
@@ -1081,8 +1083,9 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
             coordinates: parsedCoordinates,
             petitioner,
             status: 'pending',
-            assignedOfficials: nearestOfficeOfficials.map(o => o._id),
-            document: {
+            assignedTo: null, // Explicitly set to null for pending state
+            assignedOfficials: matchingOfficials.map(o => o._id), // Assign to all matching officials
+            originalDocument: {
                 filename: req.file.originalname,
                 path: req.file.path,
                 uploadedAt: new Date()
@@ -1091,20 +1094,25 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
                 status: 'pending',
                 updatedBy: petitioner,
                 updatedByType: 'petitioner',
-                comment: `Document grievance submitted and pending acceptance by officials at ${nearestOfficeCoordinates.latitude}, ${nearestOfficeCoordinates.longitude}`
-            }]
+                comment: `Document grievance submitted and pending acceptance by officials in ${taluk}, ${division}, ${district}`
+            }],
+            taluk,
+            division,
+            district,
+            priority: 'Medium'
         });
 
         await grievance.save();
-        console.log('Document grievance saved successfully:', grievance);
+        console.log('Document grievance saved successfully. ID:', grievance._id);
+        console.log('Assigned Officials:', grievance.assignedOfficials);
 
         // Create notifications for assigned officials
-        for (const official of nearestOfficeOfficials) {
+        for (const official of matchingOfficials) {
             await createNotification(
                 official._id,
                 'Official',
-                'HIGH_PRIORITY',
-                `A new document-based grievance has been submitted in your jurisdiction (${location}). Please review the uploaded document and accept if you can handle it.`,
+                'NEW_GRIEVANCE',
+                `A new document-based grievance has been submitted in your jurisdiction (${taluk}, ${division}, ${district}). Please review the uploaded document and accept if you can handle it.`,
                 grievance._id
             );
         }
@@ -1112,7 +1120,7 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         res.status(201).json({
             message: 'Document grievance created successfully',
             grievance,
-            assignedOfficials: nearestOfficeOfficials.map(o => ({
+            assignedOfficials: matchingOfficials.map(o => ({
                 id: o._id,
                 name: `${o.firstName} ${o.lastName}`,
                 distance: calculateDistance(
@@ -1631,7 +1639,7 @@ export const analyzePriorityWithGemini = async (req, res) => {
 
             const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({
-                model: "gemini-1.0-pro",
+                model: "gemini-2.0-flash",
                 generationConfig: {
                     temperature: 0.7,
                     topK: 40,
@@ -1669,10 +1677,10 @@ export const analyzePriorityWithGemini = async (req, res) => {
                 const priorityResponse = response.text();
 
                 // Extract priority information with better error handling
-                const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
-                const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
-                const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
-                const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
+                const priorityMatch = priorityResponse.match(/PRIORITY:\\s*([^\\n]+)/i);
+                const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\\s*([^\\n]+)/i);
+                const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\\s*([^\\n]+)/i);
+                const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\\s*([^\\n]+)/i);
 
                 if (priorityMatch) priority = priorityMatch[1].trim();
                 if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();

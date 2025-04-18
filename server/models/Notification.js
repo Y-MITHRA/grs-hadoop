@@ -14,7 +14,7 @@ const notificationSchema = new mongoose.Schema({
     type: {
         type: String,
         required: true,
-        enum: ['HIGH_PRIORITY', 'REASSIGNMENT', 'ESCALATION', 'CASE_REASSIGNED']
+        enum: ['HIGH_PRIORITY', 'REASSIGNMENT', 'ESCALATION', 'CASE_REASSIGNED', 'NEW_GRIEVANCE']
     },
     message: {
         type: String,

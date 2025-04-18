@@ -7,6 +7,7 @@ import Grievance from '../models/Grievance.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Official from '../models/Official.js';
 import Assignment from '../models/Assignment.js';
+import { createNotification } from './notificationController.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,20 +48,47 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Clean and validate department value
 const cleanDepartment = (department) => {
+    if (!department) return '';
+
     // Remove any special characters and extra spaces
     const cleaned = department.replace(/[*#@!]/g, '').trim();
+    console.log('Department before cleaning:', department);
+    console.log('Department after basic cleaning:', cleaned);
+
+    // Check for RTO-related keywords
+    const rtoKeywords = ['rto', 'regional transport office', 'transport', 'vehicle', 'driving', 'license', 'registration', 'motor vehicle'];
+    const isRtoRelated = rtoKeywords.some(keyword =>
+        cleaned.toLowerCase().includes(keyword)
+    );
+
+    if (isRtoRelated) {
+        console.log('RTO-related keywords detected, mapping to RTO department');
+        return 'RTO';
+    }
 
     // Map common variations to valid department names
     const departmentMap = {
         'water': 'Water',
         'rto': 'RTO',
+        'r.t.o': 'RTO',
+        'r.t.o.': 'RTO',
+        'r t o': 'RTO',
+        'regional transport': 'RTO',
+        'transport office': 'RTO',
+        'regional transport office': 'RTO',
+        'regional transport officer': 'RTO',
         'electricity': 'Electricity',
         'water department': 'Water',
+        'water board': 'Water',
         'rto department': 'RTO',
-        'electricity department': 'Electricity'
+        'electricity department': 'Electricity',
+        'electric': 'Electricity',
+        'power': 'Electricity'
     };
 
-    return departmentMap[cleaned.toLowerCase()] || cleaned;
+    const result = departmentMap[cleaned.toLowerCase()] || cleaned;
+    console.log('Final department mapping:', result);
+    return result;
 };
 
 // Function to analyze text and determine priority
@@ -169,10 +197,19 @@ export const processDocument = async (req, res) => {
         }
 
         // Extract key information using Gemini
-        const extractionPrompt = `Analyze this text and provide the following information in a structured format. For priority, carefully analyze the content and assign based on these criteria:
+        const extractionPrompt = `Analyze this text carefully and provide the following information in a structured format.
+
+        First, determine which department this grievance is meant for:
+        - If it mentions vehicles, licenses, driving, registration, transport, or motor vehicles, classify it as "RTO" department
+        - If it mentions water supply, pipes, sewage, drainage, or water quality, classify it as "Water" department
+        - If it mentions electricity, power supply, electrical issues, or billing for electricity, classify it as "Electricity" department
+
+        For priority, carefully analyze the content and assign based on these criteria:
         - High: Life-threatening situations, safety hazards, critical infrastructure issues, immediate health risks
         - Medium: Service disruptions, maintenance issues, quality concerns, non-critical problems
         - Low: General complaints, improvement suggestions, minor inconveniences
+
+        IMPORTANT: Pay special attention to identifying the correct department, district, division, and taluk information.
 
         Title: [Main topic or subject]
         Department: [Water, RTO, or Electricity only]
@@ -180,9 +217,9 @@ export const processDocument = async (req, res) => {
         Description: [Main content or issue]
         Priority: [High, Medium, or Low]
         Priority Explanation: [Brief explanation of why this priority was assigned]
-        District: [District mentioned]
-        Division: [Division mentioned]
-        Taluk: [Taluk mentioned]
+        District: [District mentioned, if Chennai is mentioned use "Chennai"]
+        Division: [Division mentioned, for RTO documents look for mentions of regions like "Chennai Central"]
+        Taluk: [Taluk mentioned, for RTO documents look for mentions of areas like "Egmore"]
 
         Text to analyze: ${englishText}`;
 
@@ -283,12 +320,36 @@ export const processDocument = async (req, res) => {
         await grievance.save();
 
         // Find and assign officials
+        console.log('Extracted data for official search:', {
+            department: extractedData.department,
+            district: extractedData.district,
+            division: extractedData.division,
+            taluk: extractedData.taluk
+        });
+
         const officials = await Official.find({
             department: extractedData.department,
             district: extractedData.district,
             division: extractedData.division,
             taluk: extractedData.taluk
         });
+
+        console.log(`Found ${officials.length} matching officials for jurisdiction`);
+
+        if (officials.length === 0) {
+            console.log('No matching officials found. Searching for all officials in this department...');
+            const allDeptOfficials = await Official.find({
+                department: extractedData.department
+            });
+            console.log(`Found ${allDeptOfficials.length} officials in ${extractedData.department} department`);
+
+            if (allDeptOfficials.length > 0) {
+                console.log('Official jurisdictions in this department:');
+                allDeptOfficials.forEach(official => {
+                    console.log(`- ${official.firstName} ${official.lastName}: ${official.taluk}, ${official.division}, ${official.district}`);
+                });
+            }
+        }
 
         // Create assignments
         const assignments = await Promise.all(officials.map(official => {
@@ -298,6 +359,17 @@ export const processDocument = async (req, res) => {
                 status: 'Pending'
             }).save();
         }));
+
+        // Create notifications for assigned officials
+        for (const official of officials) {
+            await createNotification(
+                official._id,
+                'Official',
+                'NEW_GRIEVANCE',
+                `A new document-based grievance has been submitted in your jurisdiction (${extractedData.taluk}, ${extractedData.division}, ${extractedData.district}). Please review the uploaded document and accept if you can handle it.`,
+                grievance._id
+            );
+        }
 
         res.status(201).json({
             message: 'Document processed successfully',

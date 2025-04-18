@@ -175,6 +175,10 @@ const RtoDashboard = () => {
 
       const data = await response.json();
 
+      // --- DEBUG LOGGING START ---
+      console.log(`[Rto.jsx] Raw data for ${activeTab}:`, data.grievances);
+      // --- DEBUG LOGGING END ---
+
       // Process grievances with priority analysis
       const processedGrievances = await Promise.all(data.grievances.map(async (grievance) => {
         try {
@@ -197,7 +201,7 @@ const RtoDashboard = () => {
           }
 
           const priorityData = await priorityResponse.json();
-          
+
           return {
             ...grievance,
             grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
@@ -213,6 +217,9 @@ const RtoDashboard = () => {
           console.error('Error analyzing priority:', error);
           // Fallback to local analysis if API fails
           const localPriorityData = analyzePriorityLocally(grievance);
+          // --- DEBUG LOGGING START ---
+          console.log(`[Rto.jsx] Fallback for grievance ${grievance._id || 'N/A'}:`, localPriorityData);
+          // --- DEBUG LOGGING END ---
           return {
             ...grievance,
             grievanceId: grievance.petitionId || grievance.grievanceId || 'N/A',
@@ -226,6 +233,10 @@ const RtoDashboard = () => {
           };
         }
       }));
+
+      // --- DEBUG LOGGING START ---
+      console.log(`[Rto.jsx] Processed grievances for ${activeTab}:`, processedGrievances);
+      // --- DEBUG LOGGING END ---
 
       setGrievances(prev => ({
         ...prev,
