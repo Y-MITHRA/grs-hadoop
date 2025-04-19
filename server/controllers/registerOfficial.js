@@ -72,12 +72,12 @@ export const registerOfficial = async (req, res) => {
             employeeId,
             department,
             designation,
-            officeAddress,
+            ...(officeAddress && { officeAddress }),
             city,
             state,
             pincode,
             password: hashedPassword,
-            officeCoordinates: req.body.officeCoordinates
+            ...(req.body.officeCoordinates && { officeCoordinates: req.body.officeCoordinates })
         });
 
         await newOfficial.save();
@@ -91,7 +91,28 @@ export const registerOfficial = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error Registering Official:', error.message);
-        res.status(500).json({ error: 'Internal server error' });
+
+        // Handle validation errors
+        if (error.name === 'ValidationError') {
+            const validationErrors = {};
+            Object.keys(error.errors).forEach(field => {
+                validationErrors[field] = error.errors[field].message;
+            });
+
+            return res.status(400).json({
+                error: 'Validation error',
+                validationErrors
+            });
+        }
+
+        // Handle duplicate key errors
+        if (error.code === 11000) {
+            return res.status(400).json({
+                error: 'A record with this information already exists'
+            });
+        }
+
+        res.status(500).json({ error: error.message || 'Internal server error' });
     }
 };
 

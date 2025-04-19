@@ -264,8 +264,20 @@ export const processDocument = async (req, res) => {
         if (divisionMatch) extractedData.division = divisionMatch[1].trim();
         if (talukMatch) extractedData.taluk = talukMatch[1].trim();
 
+        // Add debug logging
+        console.log('Document extraction results:', {
+            title: extractedData.title || 'NOT FOUND',
+            department: extractedData.department || 'NOT FOUND',
+            description: extractedData.description ? (extractedData.description.substring(0, 50) + '...') : 'NOT FOUND',
+            location: extractedData.location || 'NOT FOUND',
+            district: extractedData.district || 'NOT FOUND',
+            division: extractedData.division || 'NOT FOUND',
+            taluk: extractedData.taluk || 'NOT FOUND',
+            priority: extractedData.priority || 'NOT FOUND'
+        });
+
         // Validate required fields
-        if (!extractedData.title || !extractedData.department || !extractedData.location || !extractedData.description) {
+        if (!extractedData.title || !extractedData.department || !extractedData.description) {
             throw new Error('Failed to extract required information from the document');
         }
 
@@ -287,24 +299,20 @@ export const processDocument = async (req, res) => {
             title: extractedData.title,
             description: extractedData.description,
             department: extractedData.department,
-            location: extractedData.location,
-            district: extractedData.district,
-            division: extractedData.division,
-            taluk: extractedData.taluk,
+            ...(extractedData.location && { location: extractedData.location }),
+            district: extractedData.district || 'Chennai', // Default to Chennai if not extracted
+            division: extractedData.division || 'Central', // Default to Central if not extracted
+            taluk: extractedData.taluk || 'Egmore', // Default to Egmore if not extracted
             petitioner,
             status: 'pending',
             priority: extractedData.priority,
-            priorityExplanation: extractedData.priorityExplanation,
+            priorityExplanation: extractedData.priorityExplanation || 'Priority assigned based on content analysis',
             portal_type: 'GRS',
-            coordinates: req.body.coordinates && !isNaN(parseFloat(req.body.coordinates.latitude)) && !isNaN(parseFloat(req.body.coordinates.longitude)) ? {
-                latitude: parseFloat(req.body.coordinates.latitude),
-                longitude: parseFloat(req.body.coordinates.longitude)
-            } : undefined,
             statusHistory: [{
                 status: 'pending',
                 updatedBy: petitioner,
                 updatedByType: 'petitioner',
-                comment: `Document-based grievance submitted. Priority: ${extractedData.priority} - ${extractedData.priorityExplanation}`
+                comment: `Document-based grievance submitted. Priority: ${extractedData.priority} - ${extractedData.priorityExplanation || 'Based on content analysis'}`
             }],
             originalDocument: {
                 filename: req.file.originalname,
@@ -320,24 +328,31 @@ export const processDocument = async (req, res) => {
         await grievance.save();
 
         // Find and assign officials
-        console.log('Extracted data for official search:', {
+        const district = extractedData.district || 'Chennai';
+        const division = extractedData.division || 'Central';
+        const taluk = extractedData.taluk || 'Egmore';
+
+        console.log('Searching for officials with criteria:', {
             department: extractedData.department,
-            district: extractedData.district,
-            division: extractedData.division,
-            taluk: extractedData.taluk
+            district: district,
+            division: division,
+            taluk: taluk
         });
 
         const officials = await Official.find({
             department: extractedData.department,
-            district: extractedData.district,
-            division: extractedData.division,
-            taluk: extractedData.taluk
+            district: district,
+            division: division,
+            taluk: taluk
         });
 
         console.log(`Found ${officials.length} matching officials for jurisdiction`);
 
+        // If no officials found with specific jurisdiction, find officials from any jurisdiction in the same department
+        let assignmentOfficials = officials;
+
         if (officials.length === 0) {
-            console.log('No matching officials found. Searching for all officials in this department...');
+            console.log('No matching officials found in specific jurisdiction. Searching for any officials in this department...');
             const allDeptOfficials = await Official.find({
                 department: extractedData.department
             });
@@ -348,11 +363,14 @@ export const processDocument = async (req, res) => {
                 allDeptOfficials.forEach(official => {
                     console.log(`- ${official.firstName} ${official.lastName}: ${official.taluk}, ${official.division}, ${official.district}`);
                 });
+
+                // Use all department officials if specific jurisdiction officials not found
+                assignmentOfficials = allDeptOfficials;
             }
         }
 
-        // Create assignments
-        const assignments = await Promise.all(officials.map(official => {
+        // Create assignments with the officials we found (either specific jurisdiction or department-wide)
+        const assignments = await Promise.all(assignmentOfficials.map(official => {
             return new Assignment({
                 grievanceId: grievance._id,
                 officialId: official._id,
@@ -360,13 +378,17 @@ export const processDocument = async (req, res) => {
             }).save();
         }));
 
+        // After finding officials and creating assignments, update the grievance with assignedOfficials
+        grievance.assignedOfficials = assignmentOfficials.map(official => official._id);
+        await grievance.save();
+
         // Create notifications for assigned officials
-        for (const official of officials) {
+        for (const official of assignmentOfficials) {
             await createNotification(
                 official._id,
                 'Official',
                 'NEW_GRIEVANCE',
-                `A new document-based grievance has been submitted in your jurisdiction (${extractedData.taluk}, ${extractedData.division}, ${extractedData.district}). Please review the uploaded document and accept if you can handle it.`,
+                `A new document-based grievance has been submitted${officials.length === 0 ? ' that may require your attention' : ' in your jurisdiction'}. Please review the uploaded document and accept if you can handle it.`,
                 grievance._id
             );
         }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import Footer from '../shared/Footer';
-import { Upload, FileText, MapPin } from 'lucide-react';
+import { Upload, FileText } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import LocationDropdowns from '../components/LocationDropdowns';
 
@@ -15,11 +15,9 @@ const SubmitGrievance = () => {
         title: '',
         department: '',
         description: '',
-        location: '',
         taluk: '',
         district: '',
         division: '',
-        coordinates: null,
         attachments: []
     });
     const [documentFile, setDocumentFile] = useState(null);
@@ -27,54 +25,12 @@ const SubmitGrievance = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState('');
     const [submitSuccess, setSubmitSuccess] = useState(false);
-    const [isGettingLocation, setIsGettingLocation] = useState(false);
 
     // Pre-fill user data if available
     const [userData] = useState({
         name: user?.name || '',
         email: user?.email || ''
     });
-
-    const getCurrentLocation = () => {
-        setIsGettingLocation(true);
-        if (!navigator.geolocation) {
-            toast.error('Geolocation is not supported by your browser');
-            setIsGettingLocation(false);
-            return;
-        }
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const { latitude, longitude } = position.coords;
-                setFormData(prev => ({
-                    ...prev,
-                    coordinates: { latitude, longitude }
-                }));
-                // Get address from coordinates using OpenStreetMap's Nominatim
-                fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        setFormData(prev => ({
-                            ...prev,
-                            location: data.display_name
-                        }));
-                        toast.success('Location captured successfully!');
-                    })
-                    .catch(error => {
-                        console.error('Error getting address:', error);
-                        toast.error('Could not get address from coordinates');
-                    })
-                    .finally(() => {
-                        setIsGettingLocation(false);
-                    });
-            },
-            (error) => {
-                console.error('Error getting location:', error);
-                toast.error('Could not get your location. Please enter it manually.');
-                setIsGettingLocation(false);
-            }
-        );
-    };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -145,11 +101,8 @@ const SubmitGrievance = () => {
         const newErrors = {};
 
         // Common validations for both form and document
-        if (!formData.department) {
+        if (activeTab === 'form' && !formData.department) {
             newErrors.department = 'Department is required';
-        }
-        if (!formData.location.trim()) {
-            newErrors.location = 'Location is required';
         }
 
         // Form-specific validations
@@ -193,120 +146,77 @@ const SubmitGrievance = () => {
         setIsSubmitting(true);
 
         try {
+            let response;
+            // Form-based submission
             if (activeTab === 'form') {
                 const requestData = {
-                    title: formData.title.trim(),
+                    title: formData.title,
+                    description: formData.description,
                     department: formData.department,
-                    description: formData.description.trim(),
-                    location: formData.location.trim(),
-                    taluk: formData.taluk,
                     district: formData.district,
                     division: formData.division,
-                    coordinates: formData.coordinates
+                    taluk: formData.taluk
                 };
 
                 console.log('Submitting form grievance with data:', requestData);
-
-                const response = await authenticatedFetch('http://localhost:5000/api/grievances', {
+                response = await authenticatedFetch('/api/grievances', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(requestData)
                 });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to submit grievance');
-                }
-
-                const data = await response.json();
-                console.log('Server response:', data);
-
-                if (data.message === 'Grievance created successfully') {
-                    setSubmitSuccess(true);
-                    setFormData({
-                        title: '',
-                        department: '',
-                        description: '',
-                        location: '',
-                        taluk: '',
-                        district: '',
-                        division: '',
-                        coordinates: null,
-                        attachments: []
-                    });
-                    toast.success('Grievance submitted successfully!');
-
-                    setTimeout(() => {
-                        navigate('/petitioner/dashboard', {
-                            state: {
-                                message: 'Grievance submitted successfully!',
-                                type: 'success'
-                            }
-                        });
-                    }, 1500);
-                }
-            } else if (activeTab === 'document' && documentFile) {
+            }
+            // Document-based submission
+            else {
                 const formDataToSubmit = new FormData();
                 formDataToSubmit.append('document', documentFile);
-                formDataToSubmit.append('department', formData.department);
-                formDataToSubmit.append('location', formData.location);
-                if (formData.coordinates) {
-                    formDataToSubmit.append('coordinates', JSON.stringify(formData.coordinates));
-                }
                 formDataToSubmit.append('fileType', documentFile.type); // Add file type information
 
                 console.log('Submitting document grievance with data:', {
-                    department: formData.department,
-                    location: formData.location,
-                    coordinates: formData.coordinates,
                     fileType: documentFile.type
                 });
-
-                const response = await authenticatedFetch('http://localhost:5000/api/grievances/document', {
+                response = await authenticatedFetch('/api/grievances/document', {
                     method: 'POST',
                     body: formDataToSubmit
                 });
+            }
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || errorData.details || 'Failed to submit document');
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || errorData.details || 'Failed to submit grievance');
+            }
+
+            const data = await response.json();
+            console.log('Server response:', data);
+
+            if (data.message === 'Grievance created successfully' || data.message === 'Document processed successfully') {
+                setSubmitSuccess(true);
+                setFormData({
+                    title: '',
+                    department: '',
+                    description: '',
+                    taluk: '',
+                    district: '',
+                    division: '',
+                    attachments: []
+                });
+                setDocumentFile(null);
+                toast.success('Grievance submitted successfully!');
+
+                // Show extracted information if available
+                if (data.extractedData) {
+                    toast.success('Successfully extracted information from document');
                 }
 
-                const data = await response.json();
-                console.log('Server response:', data);
-
-                if (data.message === 'Document processed successfully') {
-                    setSubmitSuccess(true);
-                    setDocumentFile(null);
-                    setFormData({
-                        title: '',
-                        department: '',
-                        description: '',
-                        location: '',
-                        taluk: '',
-                        district: '',
-                        division: '',
-                        coordinates: null,
-                        attachments: []
+                setTimeout(() => {
+                    navigate('/petitioner/dashboard', {
+                        state: {
+                            message: 'Grievance submitted successfully!',
+                            type: 'success'
+                        }
                     });
-                    toast.success('Document submitted successfully!');
-
-                    // Show extracted information if available
-                    if (data.extractedData) {
-                        toast.success('Successfully extracted information from document');
-                    }
-
-                    setTimeout(() => {
-                        navigate('/petitioner/dashboard', {
-                            state: {
-                                message: 'Document submitted successfully!',
-                                type: 'success'
-                            }
-                        });
-                    }, 1500);
-                }
+                }, 1500);
             }
         } catch (error) {
             console.error('Submission error:', error);
@@ -427,36 +337,6 @@ const SubmitGrievance = () => {
                                             </div>
 
                                             <div className="mb-3">
-                                                <label className="form-label">Location*</label>
-                                                <div className="input-group">
-                                                    <input
-                                                        type="text"
-                                                        className={`form-control ${errors.location ? 'is-invalid' : ''}`}
-                                                        name="location"
-                                                        value={formData.location}
-                                                        onChange={handleChange}
-                                                        placeholder="Enter location or use current location"
-                                                        readOnly={isGettingLocation}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-outline-secondary"
-                                                        onClick={getCurrentLocation}
-                                                        disabled={isGettingLocation}
-                                                    >
-                                                        <MapPin className="me-2" size={18} />
-                                                        {isGettingLocation ? 'Getting Location...' : 'Use Current Location'}
-                                                    </button>
-                                                </div>
-                                                {errors.location && <div className="invalid-feedback">{errors.location}</div>}
-                                                <div className="form-text">
-                                                    {formData.coordinates
-                                                        ? `Coordinates: ${formData.coordinates.latitude}, ${formData.coordinates.longitude}`
-                                                        : 'Click "Use Current Location" to automatically get your location'}
-                                                </div>
-                                            </div>
-
-                                            <div className="mb-3">
                                                 <LocationDropdowns
                                                     onLocationChange={handleLocationChange}
                                                     initialValues={{
@@ -516,65 +396,16 @@ const SubmitGrievance = () => {
                                             </div>
 
                                             <div className="mb-3">
-                                                <label className="form-label">Department*</label>
-                                                <select
-                                                    className={`form-select ${errors.department ? 'is-invalid' : ''}`}
-                                                    name="department"
-                                                    value={formData.department}
-                                                    onChange={handleChange}
-                                                >
-                                                    <option value="">Select Department</option>
-                                                    <option value="Water">Water Department</option>
-                                                    <option value="RTO">RTO</option>
-                                                    <option value="Electricity">Electricity Department</option>
-                                                </select>
-                                                {errors.department && <div className="invalid-feedback">{errors.department}</div>}
-                                            </div>
-
-                                            <div className="mb-3">
-                                                <label className="form-label">Upload Document*</label>
-                                                <div className="input-group">
-                                                    <input
-                                                        type="file"
-                                                        className={`form-control ${errors.document ? 'is-invalid' : ''}`}
-                                                        onChange={handleFileChange}
-                                                        accept=".pdf,.jpg,.jpeg,.png"
-                                                    />
-                                                    <span className="input-group-text">
-                                                        <Upload size={20} />
-                                                    </span>
-                                                </div>
+                                                <label className="form-label">Document*</label>
+                                                <input
+                                                    type="file"
+                                                    className={`form-control ${errors.document ? 'is-invalid' : ''}`}
+                                                    onChange={handleFileChange}
+                                                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.tiff,.bmp"
+                                                />
                                                 {errors.document && <div className="invalid-feedback">{errors.document}</div>}
-                                                <div className="form-text">Max file size: 5MB. Supported formats: PDF, JPG, PNG</div>
-                                            </div>
-
-                                            <div className="mb-3">
-                                                <label className="form-label">Location*</label>
-                                                <div className="input-group">
-                                                    <input
-                                                        type="text"
-                                                        className={`form-control ${errors.location ? 'is-invalid' : ''}`}
-                                                        name="location"
-                                                        value={formData.location}
-                                                        onChange={handleChange}
-                                                        placeholder="Enter location or use current location"
-                                                        readOnly={isGettingLocation}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-outline-secondary"
-                                                        onClick={getCurrentLocation}
-                                                        disabled={isGettingLocation}
-                                                    >
-                                                        <MapPin className="me-2" size={18} />
-                                                        {isGettingLocation ? 'Getting Location...' : 'Use Current Location'}
-                                                    </button>
-                                                </div>
-                                                {errors.location && <div className="invalid-feedback">{errors.location}</div>}
                                                 <div className="form-text">
-                                                    {formData.coordinates
-                                                        ? `Coordinates: ${formData.coordinates.latitude}, ${formData.coordinates.longitude}`
-                                                        : 'Click "Use Current Location" to automatically get your location'}
+                                                    Supported formats: PDF, Word, Images (jpg, png, etc.)
                                                 </div>
                                             </div>
                                         </div>

@@ -136,22 +136,22 @@ const grievanceSchema = new mongoose.Schema({
     },
     location: {
         type: String,
-        required: true,
+        required: false,
         trim: true
     },
     taluk: {
         type: String,
-        required: true,
+        required: false,
         trim: true
     },
     district: {
         type: String,
-        required: true,
+        required: false,
         trim: true
     },
     division: {
         type: String,
-        required: true,
+        required: false,
         trim: true
     },
     coordinates: {

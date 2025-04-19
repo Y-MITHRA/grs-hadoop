@@ -266,14 +266,13 @@ export const createGrievance = async (req, res) => {
         } = req.body;
 
         // Validate required fields
-        if (!title || !description || !department || !location || !taluk || !district || !division) {
+        if (!title || !description || !department || !taluk || !district || !division) {
             return res.status(400).json({
                 error: 'Missing required fields',
                 missingFields: {
                     title: !title,
                     description: !description,
                     department: !department,
-                    location: !location,
                     taluk: !taluk,
                     district: !district,
                     division: !division
@@ -308,7 +307,7 @@ export const createGrievance = async (req, res) => {
             title: title.trim(),
             description: description.trim(),
             department,
-            location: location.trim(),
+            ...(location && { location: location.trim() }),
             taluk: taluk.trim(),
             district: district.trim(),
             division: division.trim(),
@@ -380,34 +379,49 @@ export const getDepartmentGrievances = async (req, res) => {
             officialDept: official.department
         });
 
-        // Build query with jurisdiction
-        const query = {
-            department,
-            taluk: official.taluk,
-            district: official.district,
-            division: official.division
+        // Build base query with jurisdiction
+        let query = {
+            department
         };
 
+        // For cases explicitly assigned to this official, we don't restrict by jurisdiction
+        // This handles reassigned cases which may be from another jurisdiction
         if (status === 'pending') {
             query.status = 'pending';
             query.$or = [
-                { assignedTo: null, assignedOfficials: officialId },
-                { assignedTo: null, assignedOfficials: { $exists: true, $size: 0 } }
+                // Cases in official's jurisdiction
+                {
+                    taluk: official.taluk,
+                    district: official.district,
+                    division: official.division,
+                    assignedTo: null,
+                    assignedOfficials: officialId
+                },
+                // Cases specifically assigned to this official (for reassignments)
+                { assignedTo: officialId, status: 'pending' }
             ];
         } else if (status === 'assigned') {
             query.status = 'assigned';
             query.assignedTo = officialId;
+            // No jurisdiction restriction for assigned cases
         } else if (status === 'inProgress' || status === 'in-progress') {
-            query.$and = [
-                { status: { $in: ['in-progress', 'inProgress'] } },
-                { assignedTo: officialId }
-            ];
+            query.status = { $in: ['in-progress', 'inProgress'] };
+            query.assignedTo = officialId;
+            // No jurisdiction restriction for in-progress cases
         } else if (status === 'resolved') {
             query.status = 'resolved';
             query.$or = [
                 { assignedTo: officialId },
-                { assignedOfficials: officialId }
+                {
+                    taluk: official.taluk,
+                    district: official.district,
+                    division: official.division,
+                    assignedOfficials: officialId
+                }
             ];
+        } else if (status === 'all') {
+            // Get all grievances assigned to this official regardless of status
+            query.assignedTo = officialId;
         }
 
         console.log('Query parameters:', JSON.stringify(query, null, 2));
@@ -1032,13 +1046,11 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         }
 
         // Validate required fields
-        if (!department || !location || !coordinates || !taluk || !division || !district) {
+        if (!department || !taluk || !division || !district) {
             return res.status(400).json({
                 error: 'Missing required fields',
                 missingFields: {
                     department: !department,
-                    location: !location,
-                    coordinates: !coordinates,
                     taluk: !taluk,
                     division: !division,
                     district: !district
@@ -1047,7 +1059,7 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         }
 
         // Parse coordinates if they're sent as a string
-        const parsedCoordinates = typeof coordinates === 'string' ? JSON.parse(coordinates) : coordinates;
+        const parsedCoordinates = coordinates && typeof coordinates === 'string' ? JSON.parse(coordinates) : coordinates;
 
         // Find officials in the specified jurisdiction
         console.log('[uploadDocument] Finding officials with criteria:', {
@@ -1077,10 +1089,12 @@ export const uploadDocumentAndCreateGrievance = async (req, res) => {
         const grievance = new Grievance({
             petitionId: `GRV${Date.now().toString().slice(-6)}`,
             title: `Document Grievance - ${req.file.originalname}`,
-            description: `Grievance submitted via document upload from location: ${location}`,
+            description: location ?
+                `Grievance submitted via document upload from location: ${location}` :
+                `Grievance submitted via document upload`,
             department,
-            location,
-            coordinates: parsedCoordinates,
+            ...(location && { location }),
+            ...(parsedCoordinates && { coordinates: parsedCoordinates }),
             petitioner,
             status: 'pending',
             assignedTo: null, // Explicitly set to null for pending state
@@ -1282,6 +1296,7 @@ export const respondToEscalation = async (req, res) => {
 
         // Update grievance fields
         grievance.escalationResponse = escalationResponse.trim();
+        grievance.escalationStatus = 'Resolved';
 
         // Handle reassignment
         if (isReassignment && newAssignedTo) {
@@ -1319,13 +1334,18 @@ export const respondToEscalation = async (req, res) => {
                     });
 
                     // Notification for new official about existing resources and status
-                    await Notification.create({
-                        recipient: newAssignedTo,
-                        recipientType: 'Official',
-                        type: 'CASE_REASSIGNED',
-                        message: `You have been assigned grievance #${grievance.petitionId} which is currently in-progress. This case has existing resource requirements that were previously submitted.`,
-                        grievanceId: grievance._id
-                    });
+                    try {
+                        await Notification.create({
+                            recipient: newAssignedTo,
+                            recipientType: 'Official',
+                            type: 'CASE_REASSIGNED',
+                            message: `You have been assigned grievance #${grievance.petitionId} which is currently in-progress. This case has existing resource requirements that were previously submitted.`,
+                            grievanceId: grievance._id
+                        });
+                        console.log(`Notification created for new official: ${newAssignedTo} (in-progress case)`);
+                    } catch (notifError) {
+                        console.error('Failed to create notification for new official:', notifError);
+                    }
                 } else {
                     // Only set to assigned if it wasn't in-progress
                     grievance.status = 'assigned';
@@ -1338,13 +1358,18 @@ export const respondToEscalation = async (req, res) => {
                     });
 
                     // Regular notification for new official
-                    await Notification.create({
-                        recipient: newAssignedTo,
-                        recipientType: 'Official',
-                        type: 'CASE_REASSIGNED',
-                        message: `You have been assigned grievance #${grievance.petitionId}. Please review and submit resource requirements if needed.`,
-                        grievanceId: grievance._id
-                    });
+                    try {
+                        await Notification.create({
+                            recipient: newAssignedTo,
+                            recipientType: 'Official',
+                            type: 'CASE_REASSIGNED',
+                            message: `You have been assigned grievance #${grievance.petitionId}. Please review and submit resource requirements if needed.`,
+                            grievanceId: grievance._id
+                        });
+                        console.log(`Notification created for new official: ${newAssignedTo} (assigned case)`);
+                    } catch (notifError) {
+                        console.error('Failed to create notification for new official:', notifError);
+                    }
                 }
 
                 // Notification for the previous official
@@ -1417,7 +1442,7 @@ export const respondToEscalation = async (req, res) => {
 
         // Add timeline entry for escalation response
         grievance.timelineStages.push({
-            stageName: 'Escalation Resolution',
+            stageName: 'Resolution',
             date: new Date(),
             description: `Escalation addressed by Admin with response: ${escalationResponse.trim()}`
         });

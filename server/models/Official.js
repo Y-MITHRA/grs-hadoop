@@ -12,7 +12,7 @@ const officialSchema = new mongoose.Schema({
         enum: ['Water', 'RTO', 'Electricity']
     },
     designation: { type: String, required: true, trim: true },
-    officeAddress: { type: String, required: true, trim: true },
+    officeAddress: { type: String, required: false, trim: true },
     city: { type: String, required: true, trim: true },
     state: { type: String, required: true, trim: true },
     pincode: { type: String, required: true, match: /^[0-9]{6}$/ },
@@ -20,8 +20,8 @@ const officialSchema = new mongoose.Schema({
     district: { type: String, required: true, trim: true },
     division: { type: String, required: true, trim: true },
     officeCoordinates: {
-        latitude: { type: Number, required: true },
-        longitude: { type: Number, required: true }
+        latitude: { type: Number, required: false },
+        longitude: { type: Number, required: false }
     },
     password: { type: String, required: true },
     role: { type: String, default: 'official' }

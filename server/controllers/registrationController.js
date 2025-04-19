@@ -28,7 +28,20 @@ export const registerOfficial = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const newOfficial = new Official({ ...req.body, password: hashedPassword });
+        // Create a clean version of req.body without undefined values
+        const officialData = { ...req.body };
+
+        // If officeCoordinates is missing or incomplete, don't include it
+        if (!officialData.officeCoordinates ||
+            !officialData.officeCoordinates.latitude ||
+            !officialData.officeCoordinates.longitude) {
+            delete officialData.officeCoordinates;
+        }
+
+        const newOfficial = new Official({
+            ...officialData,
+            password: hashedPassword
+        });
 
         await newOfficial.save();
         console.log('✅ Official Registered Successfully:', newOfficial);  // ✅ Log inserted data
@@ -37,7 +50,28 @@ export const registerOfficial = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error Registering Official:', error.message);
-        res.status(500).json({ error: 'Internal server error' });
+
+        // Handle validation errors
+        if (error.name === 'ValidationError') {
+            const validationErrors = {};
+            Object.keys(error.errors).forEach(field => {
+                validationErrors[field] = error.errors[field].message;
+            });
+
+            return res.status(400).json({
+                error: 'Validation error',
+                validationErrors
+            });
+        }
+
+        // Handle duplicate key errors
+        if (error.code === 11000) {
+            return res.status(400).json({
+                error: 'A record with this information already exists'
+            });
+        }
+
+        res.status(500).json({ error: error.message || 'Internal server error' });
     }
 };
 

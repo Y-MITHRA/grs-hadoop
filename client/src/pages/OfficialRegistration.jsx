@@ -2,14 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import Footer from '../shared/Footer';
 import NavBar from '../components/NavBar';
-import { FileText, ArrowLeft, MapPin } from 'lucide-react';
+import { FileText, ArrowLeft } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 import LocationDropdowns from '../components/LocationDropdowns';
 
 const OfficialRegistration = () => {
   const navigate = useNavigate();
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -18,70 +17,17 @@ const OfficialRegistration = () => {
     employeeId: '',
     department: '',
     designation: '',
-    officeAddress: '',
     city: '',
     state: '',
     pincode: '',
     taluk: '',
     district: '',
     division: '',
-    officeCoordinates: {
-      latitude: null,
-      longitude: null
-    },
     password: '',
     confirmPassword: ''
   });
 
   const [errors, setErrors] = useState({});
-
-  const getOfficeLocation = () => {
-    setIsGettingLocation(true);
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser');
-      setIsGettingLocation(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setFormData(prev => ({
-          ...prev,
-          officeCoordinates: {
-            latitude: latitude,
-            longitude: longitude
-          }
-        }));
-
-        // Get address from coordinates using reverse geocoding
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-          .then(response => response.json())
-          .then(data => {
-            setFormData(prev => ({
-              ...prev,
-              officeAddress: data.display_name,
-              city: data.address.city || data.address.town || '',
-              state: data.address.state || '',
-              pincode: data.address.postcode || ''
-            }));
-            toast.success('Office location captured successfully!');
-          })
-          .catch(error => {
-            console.error('Error getting address:', error);
-            toast.error('Could not get address from coordinates');
-          })
-          .finally(() => {
-            setIsGettingLocation(false);
-          });
-      },
-      (error) => {
-        console.error('Error getting location:', error);
-        toast.error('Could not get your location. Please enter it manually.');
-        setIsGettingLocation(false);
-      }
-    );
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -160,11 +106,6 @@ const OfficialRegistration = () => {
       formIsValid = false;
     }
 
-    if (!formData.officeCoordinates.latitude || !formData.officeCoordinates.longitude) {
-      tempErrors.officeLocation = 'Office location is required';
-      formIsValid = false;
-    }
-
     if (!formData.password) {
       tempErrors.password = 'Password is required';
       formIsValid = false;
@@ -198,7 +139,21 @@ const OfficialRegistration = () => {
         setErrors(response.data.error || "Registration failed.");
       }
     } catch (error) {
-      toast.error(error.response?.data?.error || "Server error. Please try again later.");
+      console.error('Registration error:', error);
+
+      if (error.response) {
+        // Handle server validation errors
+        if (error.response.data.validationErrors) {
+          setErrors(error.response.data.validationErrors);
+          toast.error("Please correct the highlighted fields");
+        } else if (error.response.data.error) {
+          toast.error(error.response.data.error);
+        } else {
+          toast.error("Registration failed. Please try again.");
+        }
+      } else {
+        toast.error("Server error. Please try again later.");
+      }
     }
   };
 
@@ -339,44 +294,6 @@ const OfficialRegistration = () => {
                           taluk: formData.taluk
                         }}
                       />
-                    </div>
-                  </div>
-
-                  <div className="row g-3 mt-1">
-                    <div className="col-12">
-                      <label className="form-label">Office Location*</label>
-                      <div className="input-group">
-                        <input
-                          type="text"
-                          className={`form-control ${errors.officeLocation ? 'is-invalid' : ''}`}
-                          name="officeAddress"
-                          value={formData.officeAddress}
-                          onChange={handleChange}
-                          placeholder="Enter office address or use current location"
-                          readOnly={isGettingLocation}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-outline-primary"
-                          onClick={getOfficeLocation}
-                          disabled={isGettingLocation}
-                        >
-                          <MapPin className="me-2" size={18} />
-                          {isGettingLocation ? 'Getting Location...' : 'Use Current Location'}
-                        </button>
-                      </div>
-                      <div className="form-text">
-                        {formData.officeCoordinates.latitude && formData.officeCoordinates.longitude ? (
-                          <span className="text-success">
-                            ✓ Location captured: {formData.officeCoordinates.latitude.toFixed(6)}, {formData.officeCoordinates.longitude.toFixed(6)}
-                          </span>
-                        ) : (
-                          <span className="text-danger">
-                            ⚠️ Please capture your office location using the button above
-                          </span>
-                        )}
-                      </div>
-                      {errors.officeLocation && <div className="invalid-feedback">{errors.officeLocation}</div>}
                     </div>
                   </div>
 
