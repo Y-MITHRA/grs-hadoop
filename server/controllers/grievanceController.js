@@ -541,17 +541,28 @@ export const acceptGrievance = async (req, res) => {
         const officialId = req.user.id;
         const officialDepartment = req.user.department;
 
+        console.log('Accepting grievance:', { id, officialId, officialDepartment });
+
         const grievance = await Grievance.findById(id);
         if (!grievance) {
+            console.log('Grievance not found:', id);
             return res.status(404).json({ error: 'Grievance not found' });
         }
 
+        console.log('Current grievance status:', grievance.status);
         if (grievance.status !== 'pending') {
-            return res.status(400).json({ error: 'Grievance is not pending' });
+            return res.status(400).json({ error: `Grievance is not pending. Current status: ${grievance.status}` });
         }
 
+        console.log('Grievance department:', grievance.department, 'Official department:', officialDepartment);
         if (grievance.department !== officialDepartment) {
-            return res.status(403).json({ error: 'Not authorized to accept grievances from other departments' });
+            return res.status(403).json({ 
+                error: 'Not authorized to accept grievances from other departments',
+                details: {
+                    grievanceDepartment: grievance.department,
+                    officialDepartment: officialDepartment
+                }
+            });
         }
 
         // Update grievance
@@ -565,6 +576,24 @@ export const acceptGrievance = async (req, res) => {
         if (!grievance.assignedOfficials.includes(officialId)) {
             grievance.assignedOfficials.push(officialId);
         }
+
+        // Set required fields based on grievance priority
+        const priority = grievance.priority || 'medium';
+        
+        // Set recommended response time based on priority
+        const responseTimeMap = {
+            high: 24, // 24 hours for high priority
+            medium: 72, // 72 hours for medium priority
+            low: 120 // 120 hours for low priority
+        };
+        
+        grievance.recommendedResponseTime = responseTimeMap[priority] || 72;
+        
+        // Set impact assessment based on priority and description
+        grievance.impactAssessment = `Based on the grievance details and ${priority} priority level, this case requires attention within ${grievance.recommendedResponseTime} hours.`;
+        
+        // Set priority explanation
+        grievance.priorityExplanation = `This grievance has been classified as ${priority} priority based on the nature of the complaint and department guidelines.`;
 
         grievance.statusHistory.push({
             status: 'assigned',
@@ -581,7 +610,11 @@ export const acceptGrievance = async (req, res) => {
         });
     } catch (error) {
         console.error('Error accepting grievance:', error);
-        res.status(500).json({ error: 'Failed to accept grievance' });
+        res.status(500).json({ 
+            error: 'Failed to accept grievance',
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
