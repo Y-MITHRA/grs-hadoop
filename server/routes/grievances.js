@@ -79,7 +79,11 @@ router.post('/', isAuthenticated, async (req, res) => {
           department: 'RTO',
           district,
           division,
-          taluk
+          taluk,
+          coordinates: {
+            latitude: 0,  // Default coordinates if not provided
+            longitude: 0
+          }
         }, {
           headers: {
             'Content-Type': 'application/json'
@@ -88,6 +92,7 @@ router.post('/', isAuthenticated, async (req, res) => {
         nearestOfficeOfficials = grsResponse.data.nearestOfficeOfficials;
       } catch (error) {
         console.error('Error finding nearest officials:', error);
+        // Continue without nearest officials if the request fails
       }
 
       const grievance = new Grievance({
