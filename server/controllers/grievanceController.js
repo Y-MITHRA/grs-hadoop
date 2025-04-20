@@ -388,14 +388,15 @@ export const getDepartmentGrievances = async (req, res) => {
         // This handles reassigned cases which may be from another jurisdiction
         if (status === 'pending') {
             query.status = 'pending';
+            // Modified query to show ALL pending grievances in the official's jurisdiction,
+            // regardless of whether they are specifically in the assignedOfficials array
             query.$or = [
-                // Cases in official's jurisdiction
+                // All cases in the official's jurisdiction
                 {
                     taluk: official.taluk,
                     district: official.district,
                     division: official.division,
-                    assignedTo: null,
-                    assignedOfficials: officialId
+                    status: 'pending'
                 },
                 // Cases specifically assigned to this official (for reassignments)
                 { assignedTo: officialId, status: 'pending' }
@@ -428,7 +429,7 @@ export const getDepartmentGrievances = async (req, res) => {
 
         // Get grievances with all necessary fields
         const grievances = await Grievance.find(query)
-            .select('petitionId title description department location status createdAt updatedAt assignedTo assignedOfficials resolutionDocument')
+            .select('petitionId title description department location status createdAt updatedAt assignedTo assignedOfficials resolutionDocument originalDocument attachments priority')
             .populate('petitioner', 'name email')
             .populate('assignedTo', 'firstName lastName email')
             .sort({ createdAt: -1 });
@@ -453,7 +454,24 @@ export const getDepartmentGrievances = async (req, res) => {
             }
         ]);
 
-        console.log('Stats:', stats);
+        console.log('Stats in official jurisdiction:', stats);
+
+        // Get total department stats for logging/debugging
+        const totalDeptStats = await Grievance.aggregate([
+            {
+                $match: {
+                    department
+                }
+            },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        console.log('Total department stats:', totalDeptStats);
 
         // Format stats
         const formattedStats = {

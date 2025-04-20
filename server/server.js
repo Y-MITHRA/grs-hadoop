@@ -72,6 +72,7 @@ app.use(cors({
     credentials: true
 }));
 app.use('/uploads', express.static('uploads')); // Serve uploaded files
+app.use('/uploads/documents', express.static(path.join(__dirname, 'uploads/documents'))); // Serve document files
 
 // Routes
 app.use('/api', registrationRoutes);

@@ -23,6 +23,22 @@ const generateToken = (user) => {
         exp: calculateTokenExpiration()
     };
 
+    // Add department for officials
+    if (user.role === 'official' || user.department) {
+        payload.department = user.department;
+    }
+
+    // Add jurisdiction fields for officials
+    if (user.role === 'official' && user.taluk) {
+        payload.taluk = user.taluk;
+    }
+    if (user.role === 'official' && user.district) {
+        payload.district = user.district;
+    }
+    if (user.role === 'official' && user.division) {
+        payload.division = user.division;
+    }
+
     return jwt.sign(payload, JWT_SECRET, JWT_OPTIONS);
 };
 
@@ -147,7 +163,10 @@ export const refreshToken = async (req, res) => {
                     : (user.name || `${user.email.split('@')[0]}`),
                 email: user.email,
                 role: decoded.role,
-                ...(decoded.department && { department: decoded.department })
+                ...(decoded.department && { department: decoded.department }),
+                ...(decoded.taluk && { taluk: decoded.taluk }),
+                ...(decoded.district && { district: decoded.district }),
+                ...(decoded.division && { division: decoded.division })
             }
         });
     } catch (error) {
@@ -245,7 +264,10 @@ export const loginOfficial = async (req, res) => {
                 lastName: official.lastName,
                 email: official.email,
                 role: 'official',
-                department: official.department
+                department: official.department,
+                taluk: official.taluk,
+                district: official.district,
+                division: official.division
             }
         });
     } catch (error) {
@@ -306,7 +328,10 @@ export const getCurrentUser = async (req, res) => {
             role: user.role,
             firstName: user.firstName,
             lastName: user.lastName,
-            ...(user.department && { department: user.department })
+            ...(user.department && { department: user.department }),
+            ...(user.taluk && { taluk: user.taluk }),
+            ...(user.district && { district: user.district }),
+            ...(user.division && { division: user.division })
         });
     } catch (error) {
         console.error('Error getting current user:', error);

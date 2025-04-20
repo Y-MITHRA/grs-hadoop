@@ -212,7 +212,9 @@ const RtoDashboard = () => {
             priority: priorityData.priority,
             priorityExplanation: priorityData.explanation,
             impactAssessment: priorityData.impactAssessment,
-            recommendedResponseTime: priorityData.recommendedResponseTime
+            recommendedResponseTime: priorityData.recommendedResponseTime,
+            originalDocument: grievance.originalDocument || null,
+            attachments: grievance.attachments || []
           };
         } catch (error) {
           console.error('Error analyzing priority:', error);
@@ -227,7 +229,9 @@ const RtoDashboard = () => {
             priority: localPriorityData.priority,
             priorityExplanation: localPriorityData.explanation,
             impactAssessment: localPriorityData.impactAssessment,
-            recommendedResponseTime: localPriorityData.recommendedResponseTime
+            recommendedResponseTime: localPriorityData.recommendedResponseTime,
+            originalDocument: grievance.originalDocument || null,
+            attachments: grievance.attachments || []
           };
         }
       }));
@@ -515,6 +519,46 @@ const RtoDashboard = () => {
               </p>
             </div>
 
+            {/* Document Viewing Section */}
+            {(selectedGrievance.originalDocument || (selectedGrievance.attachments && selectedGrievance.attachments.length > 0)) && (
+              <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Submitted Documents</h3>
+
+                {selectedGrievance.originalDocument && (
+                  <div className="mb-3">
+                    <h5 className="font-medium">Original Document:</h5>
+                    <a
+                      href={`http://localhost:5000/uploads/documents/${selectedGrievance.originalDocument.path.split('/').pop()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mt-2"
+                    >
+                      <FaEye className="mr-2" /> View Document
+                    </a>
+                  </div>
+                )}
+
+                {selectedGrievance.attachments && selectedGrievance.attachments.length > 0 && (
+                  <div>
+                    <h5 className="font-medium">Additional Attachments:</h5>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                      {selectedGrievance.attachments.map((attachment, index) => (
+                        <a
+                          key={index}
+                          href={`http://localhost:5000/uploads/documents/${attachment.path.split('/').pop()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                          <FaEye className="mr-2" /> Attachment {index + 1}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Response Time</h3>
               <p className="text-gray-700 leading-relaxed">
@@ -671,6 +715,9 @@ const RtoDashboard = () => {
       <div className="department-header bg-primary text-white p-3 d-flex justify-content-between align-items-center">
         <div className="d-flex align-items-center">
           <h2 className="mb-0">RTO Department</h2>
+          <span className="badge bg-info ms-2">
+            Jurisdiction: {user?.taluk || 'N/A'}, {user?.district || 'N/A'}, {user?.division || 'N/A'}
+          </span>
         </div>
         <div className="d-flex align-items-center gap-3">
           {/* Notification Bell */}
@@ -847,7 +894,17 @@ const RtoDashboard = () => {
                 ) : error ? (
                   <div className="error">{error}</div>
                 ) : grievances[activeTab].length === 0 ? (
-                  <div className="no-grievances">No grievances found</div>
+                  <div className="no-grievances">
+                    <h4>No grievances found in your jurisdiction</h4>
+                    <p className="text-muted">
+                      Grievances are assigned based on your jurisdiction (Taluk: {user?.taluk || 'Not set'},
+                      District: {user?.district || 'Not set'}, Division: {user?.division || 'Not set'}).
+                    </p>
+                    <p className="text-muted">
+                      While there may be pending grievances in the RTO department,
+                      none match your specific jurisdiction at this time.
+                    </p>
+                  </div>
                 ) : (
                   grievances[activeTab].map((grievance) => renderGrievanceCard(grievance))
                 )}
