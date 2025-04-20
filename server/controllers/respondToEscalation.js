@@ -180,6 +180,20 @@ export const respondToEscalation = async (req, res) => {
                     grievance.assignedOfficials = grievance.assignedOfficials.filter(
                         official => official.toString() !== previousOfficialId.toString()
                     );
+
+                    // Notification for the previous official
+                    try {
+                        await Notification.create({
+                            recipient: previousOfficialId,
+                            recipientType: 'Official',
+                            type: 'CASE_REASSIGNED',
+                            message: `Grievance #${grievance.petitionId} has been reassigned to another official and will no longer appear in your dashboard. Admin Response: ${escalationResponse.trim()}`,
+                            grievanceId: grievance._id
+                        });
+                        console.log(`Notification created for previous official: ${previousOfficialId}`);
+                    } catch (notifError) {
+                        console.error('Failed to create notification for previous official:', notifError);
+                    }
                 }
             } catch (error) {
                 console.error('Error during reassignment:', error);

@@ -398,70 +398,48 @@ export const getDepartmentGrievances = async (req, res) => {
             officialDept: official.department
         });
 
-        // Build base query with jurisdiction
+        // Build base query with common filters
         let query = {
-            department
-        };
-
-        // For cases explicitly assigned to this official, we don't restrict by jurisdiction
-        // This handles reassigned cases which may be from another jurisdiction
-        if (status === 'pending') {
-            query.status = 'pending';
-            // Simply show ALL pending grievances in the official's jurisdiction,
-            // regardless of whether this official existed when the grievance was created
-            query.$and = [
-                { status: 'pending' },
-                { department },
+            department,
+            // Only include cases where this official is either:
+            // 1. Currently assigned (assignedTo), or
+            // 2. In the jurisdiction but not explicitly assigned to someone else
+            $or: [
+                { assignedTo: officialId }, // Cases assigned directly to this official
                 {
-                    $or: [
-                        // Exact match
-                        {
-                            taluk: official.taluk,
-                            district: official.district,
-                            division: official.division
-                        },
-                        // Case-insensitive match
-                        {
-                            $and: [
-                                { $expr: { $eq: [{ $toLower: "$taluk" }, official.taluk.toLowerCase()] } },
-                                { $expr: { $eq: [{ $toLower: "$district" }, official.district.toLowerCase()] } },
-                                { $expr: { $eq: [{ $toLower: "$division" }, official.division.toLowerCase()] } }
-                            ]
-                        }
+                    $and: [
+                        { assignedTo: { $exists: false } }, // Not assigned to anyone
+                        // In the official's jurisdiction (case-insensitive)
+                        { $expr: { $eq: [{ $toLower: "$taluk" }, official.taluk.toLowerCase()] } },
+                        { $expr: { $eq: [{ $toLower: "$district" }, official.district.toLowerCase()] } },
+                        { $expr: { $eq: [{ $toLower: "$division" }, official.division.toLowerCase()] } }
                     ]
                 }
-            ];
-            // Also include cases specifically assigned to this official (for reassignments)
-            query.$or = [
-                // Cases matching the $and condition above
-                { $and: query.$and },
-                // Cases specifically assigned to this official
-                { assignedTo: officialId, status: 'pending' }
-            ];
+            ]
+        };
 
-            // Remove the $and now that we've used it in $or
-            delete query.$and;
+        // Add status-specific conditions
+        if (status === 'pending') {
+            query.status = 'pending';
+            // Add case where official is in assignedOfficials array but not yet explicitly assigned
+            query.$or.push({
+                status: 'pending',
+                assignedOfficials: officialId
+            });
         } else if (status === 'assigned') {
             query.status = 'assigned';
             query.assignedTo = officialId;
-            // No jurisdiction restriction for assigned cases
         } else if (status === 'inProgress' || status === 'in-progress') {
             query.status = { $in: ['in-progress', 'inProgress'] };
             query.assignedTo = officialId;
-            // No jurisdiction restriction for in-progress cases
         } else if (status === 'resolved') {
             query.status = 'resolved';
             query.$or = [
                 { assignedTo: officialId },
-                // Exact match
                 {
-                    taluk: official.taluk,
-                    district: official.district,
-                    division: official.division
-                },
-                // Case-insensitive match
-                {
+                    assignedOfficials: officialId,
                     $and: [
+                        // In the official's jurisdiction (case-insensitive)
                         { $expr: { $eq: [{ $toLower: "$taluk" }, official.taluk.toLowerCase()] } },
                         { $expr: { $eq: [{ $toLower: "$district" }, official.district.toLowerCase()] } },
                         { $expr: { $eq: [{ $toLower: "$division" }, official.division.toLowerCase()] } }
@@ -469,14 +447,16 @@ export const getDepartmentGrievances = async (req, res) => {
                 }
             ];
         } else if (status === 'all') {
-            // Get all grievances assigned to this official regardless of status
             query.$or = [
                 { assignedTo: officialId },
+                { assignedOfficials: officialId },
                 {
-                    taluk: official.taluk,
-                    district: official.district,
-                    division: official.division,
-                    status: 'pending'
+                    $and: [
+                        { status: 'pending' },
+                        { $expr: { $eq: [{ $toLower: "$taluk" }, official.taluk.toLowerCase()] } },
+                        { $expr: { $eq: [{ $toLower: "$district" }, official.district.toLowerCase()] } },
+                        { $expr: { $eq: [{ $toLower: "$division" }, official.division.toLowerCase()] } }
+                    ]
                 }
             ];
         }
