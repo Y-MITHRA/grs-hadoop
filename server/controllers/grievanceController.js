@@ -413,9 +413,22 @@ export const getDepartmentGrievances = async (req, res) => {
                 { status: 'pending' },
                 { department },
                 {
-                    taluk: official.taluk,
-                    district: official.district,
-                    division: official.division
+                    $or: [
+                        // Exact match
+                        {
+                            taluk: official.taluk,
+                            district: official.district,
+                            division: official.division
+                        },
+                        // Case-insensitive match
+                        {
+                            $and: [
+                                { $expr: { $eq: [{ $toLower: "$taluk" }, official.taluk.toLowerCase()] } },
+                                { $expr: { $eq: [{ $toLower: "$district" }, official.district.toLowerCase()] } },
+                                { $expr: { $eq: [{ $toLower: "$division" }, official.division.toLowerCase()] } }
+                            ]
+                        }
+                    ]
                 }
             ];
             // Also include cases specifically assigned to this official (for reassignments)
@@ -440,10 +453,19 @@ export const getDepartmentGrievances = async (req, res) => {
             query.status = 'resolved';
             query.$or = [
                 { assignedTo: officialId },
+                // Exact match
                 {
                     taluk: official.taluk,
                     district: official.district,
                     division: official.division
+                },
+                // Case-insensitive match
+                {
+                    $and: [
+                        { $expr: { $eq: [{ $toLower: "$taluk" }, official.taluk.toLowerCase()] } },
+                        { $expr: { $eq: [{ $toLower: "$district" }, official.district.toLowerCase()] } },
+                        { $expr: { $eq: [{ $toLower: "$division" }, official.division.toLowerCase()] } }
+                    ]
                 }
             ];
         } else if (status === 'all') {

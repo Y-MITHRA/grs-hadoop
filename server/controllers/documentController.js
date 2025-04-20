@@ -46,50 +46,48 @@ export const upload = multer({
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Clean and validate department value
-const cleanDepartment = (department) => {
-    if (!department) return '';
+// Define valid department values
+const VALID_DEPARTMENTS = ['Water', 'RTO', 'Electricity'];
 
-    // Remove any special characters and extra spaces
-    const cleaned = department.replace(/[*#@!]/g, '').trim();
-    console.log('Department before cleaning:', department);
-    console.log('Department after basic cleaning:', cleaned);
+// Enhance the department detection logic
+function cleanDepartment(dept) {
+    if (!dept) return '';
 
-    // Check for RTO-related keywords
-    const rtoKeywords = ['rto', 'regional transport office', 'transport', 'vehicle', 'driving', 'license', 'registration', 'motor vehicle'];
-    const isRtoRelated = rtoKeywords.some(keyword =>
-        cleaned.toLowerCase().includes(keyword)
-    );
+    const deptLower = dept.toLowerCase().trim();
 
-    if (isRtoRelated) {
-        console.log('RTO-related keywords detected, mapping to RTO department');
+    // More comprehensive keyword matching
+    if (deptLower.includes('water') ||
+        deptLower.includes('drinking') ||
+        deptLower.includes('sewage') ||
+        deptLower.includes('sanitation') ||
+        deptLower.includes('contamination') ||
+        deptLower.includes('pipeline') ||
+        deptLower.includes('leak') ||
+        deptLower.includes('drainage')) {
+        return 'Water';
+    }
+
+    if (deptLower.includes('electricity') ||
+        deptLower.includes('power') ||
+        deptLower.includes('electric') ||
+        deptLower.includes('transformer') ||
+        deptLower.includes('voltage') ||
+        deptLower.includes('current')) {
+        return 'Electricity';
+    }
+
+    if (deptLower.includes('rto') ||
+        deptLower.includes('transport') ||
+        deptLower.includes('vehicle') ||
+        deptLower.includes('license') ||
+        deptLower.includes('driving') ||
+        deptLower.includes('registration') ||
+        deptLower.includes('motor')) {
         return 'RTO';
     }
 
-    // Map common variations to valid department names
-    const departmentMap = {
-        'water': 'Water',
-        'rto': 'RTO',
-        'r.t.o': 'RTO',
-        'r.t.o.': 'RTO',
-        'r t o': 'RTO',
-        'regional transport': 'RTO',
-        'transport office': 'RTO',
-        'regional transport office': 'RTO',
-        'regional transport officer': 'RTO',
-        'electricity': 'Electricity',
-        'water department': 'Water',
-        'water board': 'Water',
-        'rto department': 'RTO',
-        'electricity department': 'Electricity',
-        'electric': 'Electricity',
-        'power': 'Electricity'
-    };
-
-    const result = departmentMap[cleaned.toLowerCase()] || cleaned;
-    console.log('Final department mapping:', result);
-    return result;
-};
+    return dept; // Return original if no match
+}
 
 // Function to analyze text and determine priority
 const analyzePriority = (text) => {
@@ -243,16 +241,116 @@ export const processDocument = async (req, res) => {
             taluk: ''
         };
 
-        // Extract information using regex
-        const titleMatch = responseText.match(/Title:\s*([^\n]+)/i);
+        // Modified regex patterns to capture multi-line content
+        const titleMatch = responseText.match(/Title:\s*([^\n]+(?:\n[^\n:]+)*)/i);
         const departmentMatch = responseText.match(/Department:\s*([^\n]+)/i);
-        const locationMatch = responseText.match(/Location:\s*([^\n]+)/i);
-        const descriptionMatch = responseText.match(/Description:\s*([^\n]+)/i);
+        const locationMatch = responseText.match(/Location:\s*([^\n]+(?:\n[^\n:]+)*)/i);
+        const descriptionMatch = responseText.match(/Description:\s*([^\n]+(?:\n[^\n:]+)*)/i);
         const priorityMatch = responseText.match(/Priority:\s*([^\n]+)/i);
-        const priorityExplanationMatch = responseText.match(/Priority Explanation:\s*([^\n]+)/i);
+        const priorityExplanationMatch = responseText.match(/Priority Explanation:\s*([^\n]+(?:\n[^\n:]+)*)/i);
         const districtMatch = responseText.match(/District:\s*([^\n]+)/i);
         const divisionMatch = responseText.match(/Division:\s*([^\n]+)/i);
         const talukMatch = responseText.match(/Taluk:\s*([^\n]+)/i);
+
+        // Add a direct text analysis for document type when regex fails
+        if (!departmentMatch) {
+            // Analyze text directly for keywords
+            const text = englishText.toLowerCase();
+            if (text.includes('water') || text.includes('contamination') || text.includes('sewage') ||
+                text.includes('pipe') || text.includes('sanitation')) {
+                extractedData.department = 'Water';
+            } else if (text.includes('electricity') || text.includes('power supply') ||
+                text.includes('voltage') || text.includes('transformer')) {
+                extractedData.department = 'Electricity';
+            } else if (text.includes('vehicle') || text.includes('license') || text.includes('rto') ||
+                text.includes('traffic') || text.includes('registration')) {
+                extractedData.department = 'RTO';
+            }
+        }
+
+        // Add a direct text analysis for title when regex fails
+        if (!titleMatch && englishText) {
+            // Extract first line that could be a subject line
+            const lines = englishText.split('\n').filter(line => line.trim());
+            const subjectLine = lines.find(line => line.toLowerCase().includes('subject:'));
+
+            if (subjectLine) {
+                extractedData.title = subjectLine.replace(/^subject:\s*/i, '').trim();
+            } else if (lines.length > 0) {
+                // Use first non-empty line as title if it's reasonably short
+                const possibleTitle = lines[0].trim();
+                if (possibleTitle.length < 100) {
+                    extractedData.title = possibleTitle;
+                }
+            }
+        }
+
+        // Extract district, division, and taluk from text if regex fails
+        if (!districtMatch || !divisionMatch || !talukMatch) {
+            const text = englishText.toLowerCase();
+
+            // Try to find district
+            const districtKeywords = ['chennai district', 'district'];
+            if (!extractedData.district) {
+                for (const keyword of districtKeywords) {
+                    const index = text.indexOf(keyword);
+                    if (index !== -1) {
+                        const beforeText = text.substring(Math.max(0, index - 20), index);
+                        const afterText = text.substring(index, index + 50);
+                        const districtMatch = (beforeText + afterText).match(/(\w+)\s+district/i);
+                        if (districtMatch && districtMatch[1]) {
+                            extractedData.district = districtMatch[1].charAt(0).toUpperCase() + districtMatch[1].slice(1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Try to find division
+            const divisionKeywords = ['division', 'south division', 'north division', 'east division', 'west division', 'central division'];
+            if (!extractedData.division) {
+                for (const keyword of divisionKeywords) {
+                    const index = text.indexOf(keyword);
+                    if (index !== -1) {
+                        const beforeText = text.substring(Math.max(0, index - 20), index);
+                        const afterText = text.substring(index, index + 50);
+                        const divisionMatch = (beforeText + afterText).match(/(\w+)\s+division/i);
+                        if (divisionMatch && divisionMatch[1]) {
+                            extractedData.division = divisionMatch[1].charAt(0).toUpperCase() + divisionMatch[1].slice(1);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Try to find taluk
+            const talukKeywords = ['taluk', 'taluka'];
+            if (!extractedData.taluk) {
+                for (const keyword of talukKeywords) {
+                    const index = text.indexOf(keyword);
+                    if (index !== -1) {
+                        const beforeText = text.substring(Math.max(0, index - 20), index);
+                        const afterText = text.substring(index, index + 50);
+                        const talukMatch = (beforeText + afterText).match(/(\w+)\s+taluk/i);
+                        if (talukMatch && talukMatch[1]) {
+                            extractedData.taluk = talukMatch[1].charAt(0).toUpperCase() + talukMatch[1].slice(1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try to extract description from the full text if regex fails
+        if (!descriptionMatch && englishText) {
+            const lines = englishText.split('\n').filter(line => line.trim());
+            // Skip the first few lines which are likely header/addressing information
+            const contentLines = lines.slice(3);
+            if (contentLines.length > 0) {
+                // Join multiple lines to form a description
+                extractedData.description = contentLines.join(' ').substring(0, 500); // Limit to 500 chars
+            }
+        }
 
         if (titleMatch) extractedData.title = titleMatch[1].trim();
         if (departmentMatch) extractedData.department = cleanDepartment(departmentMatch[1]);
@@ -276,15 +374,55 @@ export const processDocument = async (req, res) => {
             priority: extractedData.priority || 'NOT FOUND'
         });
 
+        // Validate and finalize the extracted data
+        console.log('Before validation:', extractedData);
+
+        // Update the validation check to handle default values for required fields
+        if (!extractedData.title) {
+            extractedData.title = 'Document Grievance'; // Default title
+        }
+
+        if (!extractedData.department || !VALID_DEPARTMENTS.includes(extractedData.department)) {
+            // If we couldn't determine department from regex or direct text analysis,
+            // make one final attempt to extract from description or full text
+            const textToAnalyze = extractedData.description || englishText;
+            const cleanedDept = cleanDepartment(textToAnalyze);
+
+            if (VALID_DEPARTMENTS.includes(cleanedDept)) {
+                extractedData.department = cleanedDept;
+            } else {
+                console.log('Invalid department detected:', extractedData.department);
+                extractedData.department = 'Water'; // Default to Water department
+            }
+        }
+
+        if (!extractedData.description) {
+            extractedData.description = englishText.substring(0, 500); // Use part of the document as description
+        }
+
+        // Set reasonable default location info if missing
+        if (!extractedData.district) {
+            extractedData.district = 'Chennai'; // Default district
+        }
+
+        if (!extractedData.division) {
+            extractedData.division = 'South'; // Default division
+        }
+
+        if (!extractedData.taluk) {
+            extractedData.taluk = 'Adyar'; // Default taluk
+        }
+
+        console.log('After validation:', extractedData);
+
         // Validate required fields
         if (!extractedData.title || !extractedData.department || !extractedData.description) {
             throw new Error('Failed to extract required information from the document');
         }
 
         // Validate department is one of the allowed values
-        const validDepartments = ['Water', 'RTO', 'Electricity'];
-        if (!validDepartments.includes(extractedData.department)) {
-            throw new Error(`Invalid department: ${extractedData.department}. Must be one of: ${validDepartments.join(', ')}`);
+        if (!VALID_DEPARTMENTS.includes(extractedData.department)) {
+            throw new Error(`Invalid department: ${extractedData.department}. Must be one of: ${VALID_DEPARTMENTS.join(', ')}`);
         }
 
         // Validate priority is one of the allowed values
@@ -339,33 +477,52 @@ export const processDocument = async (req, res) => {
             taluk: taluk
         });
 
+        // Case insensitive search - convert all jurisdiction fields to lowercase for matching
         const officials = await Official.find({
             department: extractedData.department,
-            district: district,
-            division: division,
-            taluk: taluk
+            $and: [
+                { $expr: { $eq: [{ $toLower: "$district" }, district.toLowerCase()] } },
+                { $expr: { $eq: [{ $toLower: "$division" }, division.toLowerCase()] } },
+                { $expr: { $eq: [{ $toLower: "$taluk" }, taluk.toLowerCase()] } }
+            ]
         });
 
-        console.log(`Found ${officials.length} matching officials for jurisdiction`);
+        console.log(`Found ${officials.length} matching officials for exact jurisdiction match`);
 
-        // If no officials found with specific jurisdiction, find officials from any jurisdiction in the same department
+        // If no officials found with exact match, try a more flexible search
         let assignmentOfficials = officials;
 
         if (officials.length === 0) {
-            console.log('No matching officials found in specific jurisdiction. Searching for any officials in this department...');
-            const allDeptOfficials = await Official.find({
-                department: extractedData.department
+            console.log('No exact jurisdiction match. Trying partial match...');
+
+            // Try to match with just department and district
+            const districtOfficials = await Official.find({
+                department: extractedData.department,
+                $expr: { $eq: [{ $toLower: "$district" }, district.toLowerCase()] }
             });
-            console.log(`Found ${allDeptOfficials.length} officials in ${extractedData.department} department`);
 
-            if (allDeptOfficials.length > 0) {
-                console.log('Official jurisdictions in this department:');
-                allDeptOfficials.forEach(official => {
-                    console.log(`- ${official.firstName} ${official.lastName}: ${official.taluk}, ${official.division}, ${official.district}`);
+            console.log(`Found ${districtOfficials.length} officials in same district`);
+
+            if (districtOfficials.length > 0) {
+                assignmentOfficials = districtOfficials;
+                console.log('Using district-level officials instead');
+            } else {
+                // If still no match, get all officials in the department
+                console.log('No district match either. Searching for any officials in this department...');
+                const allDeptOfficials = await Official.find({
+                    department: extractedData.department
                 });
+                console.log(`Found ${allDeptOfficials.length} officials in ${extractedData.department} department`);
 
-                // Use all department officials if specific jurisdiction officials not found
-                assignmentOfficials = allDeptOfficials;
+                if (allDeptOfficials.length > 0) {
+                    console.log('Official jurisdictions in this department:');
+                    allDeptOfficials.forEach(official => {
+                        console.log(`- ${official.firstName} ${official.lastName}: ${official.taluk}, ${official.division}, ${official.district}`);
+                    });
+
+                    // Use all department officials if specific jurisdiction officials not found
+                    assignmentOfficials = allDeptOfficials;
+                }
             }
         }
 

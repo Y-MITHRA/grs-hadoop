@@ -42,12 +42,50 @@ const TimelineView = ({ grievanceId, onBack }) => {
                 return '🔎';
             case 'Investigation':
                 return '🕵️';
+            case 'Escalated':
+                return '⚠️';
+            case 'Reassigned':
+                return '🔄';
             case 'Resolution':
                 return '🏁';
             default:
                 return '📍';
         }
     };
+
+    // Define the logical order of stages
+    const getStageOrder = (stageName) => {
+        switch (stageName) {
+            case 'Grievance Filed':
+                return 1;
+            case 'Under Review':
+                return 2;
+            case 'Investigation':
+                return 3;
+            case 'Escalated':
+                return 4;
+            case 'Reassigned':
+                return 5;
+            case 'Resolution':
+                return 6;
+            default:
+                return 7; // Any custom stages will appear at the end
+        }
+    };
+
+    // Sort timeline stages by logical order and then by date
+    const sortedStages = [...timelineStages].sort((a, b) => {
+        const orderA = getStageOrder(a.stageName);
+        const orderB = getStageOrder(b.stageName);
+
+        // If stages have different logical order, sort by that
+        if (orderA !== orderB) {
+            return orderA - orderB;
+        }
+
+        // If stages have the same logical order, sort by date
+        return new Date(a.date) - new Date(b.date);
+    });
 
     if (loading) return <div>Loading timeline...</div>;
     if (error) return <div className="error">{error}</div>;
@@ -65,7 +103,7 @@ const TimelineView = ({ grievanceId, onBack }) => {
                 <h3 className="mb-0">Grievance Timeline</h3>
             </div>
             <div className="timeline">
-                {timelineStages.map((stage, index) => (
+                {sortedStages.map((stage, index) => (
                     <div key={index} className="timeline-item">
                         <div className="timeline-icon">
                             {getStageIcon(stage.stageName)}
