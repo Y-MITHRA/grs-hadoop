@@ -9,19 +9,12 @@ import {
   TextField,
   Button,
   FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Grid,
-  InputAdornment,
-  IconButton,
 } from '@mui/material';
-import {
-  Upload as UploadIcon,
-  LocationOn as LocationOnIcon
-} from '@mui/icons-material';
+import { Upload as UploadIcon } from '@mui/icons-material';
 import { toast } from 'react-hot-toast';
 import axios from 'axios';
+import LocationDropdowns from '../components/LocationDropdowns';
 
 const GrievanceForm = () => {
   const navigate = useNavigate();
@@ -30,54 +23,13 @@ const GrievanceForm = () => {
     title: '',
     department: 'RTO',
     description: '',
-    location: '',
-    coordinates: null,
+    district: '',
+    division: '',
+    taluk: '',
     attachments: []
   });
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
-
-  const getCurrentLocation = () => {
-    setIsGettingLocation(true);
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser');
-      setIsGettingLocation(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setFormData(prev => ({
-          ...prev,
-          coordinates: { latitude, longitude }
-        }));
-        // Get address from coordinates using reverse geocoding
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-          .then(response => response.json())
-          .then(data => {
-            setFormData(prev => ({
-              ...prev,
-              location: data.display_name
-            }));
-            toast.success('Location captured successfully!');
-          })
-          .catch(error => {
-            console.error('Error getting address:', error);
-            toast.error('Could not get address from coordinates');
-          })
-          .finally(() => {
-            setIsGettingLocation(false);
-          });
-      },
-      (error) => {
-        console.error('Error getting location:', error);
-        toast.error('Could not get your location. Please enter it manually.');
-        setIsGettingLocation(false);
-      }
-    );
-  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -85,7 +37,7 @@ const GrievanceForm = () => {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
+    // Clear any errors for this field
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
@@ -94,41 +46,46 @@ const GrievanceForm = () => {
     }
   };
 
-  const handleFileChange = (e) => {
-    const files = e.target.files;
-    if (files) {
-      const newAttachments = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        if (file.size > 5 * 1024 * 1024) {
-          setErrors(prev => ({
-            ...prev,
-            attachments: 'File size should not exceed 5MB'
-          }));
-          return;
-        }
-        newAttachments.push(file);
-      }
-      setFormData(prev => ({
-        ...prev,
-        attachments: newAttachments
-      }));
-    }
+  const handleLocationChange = ({ district, division, taluk }) => {
+    setFormData(prev => ({
+      ...prev,
+      district,
+      division,
+      taluk
+    }));
   };
 
   const validateForm = () => {
     const newErrors = {};
+    let isValid = true;
+
     if (!formData.title.trim()) {
       newErrors.title = 'Title is required';
+      isValid = false;
     }
+
     if (!formData.description.trim()) {
       newErrors.description = 'Description is required';
+      isValid = false;
     }
-    if (!formData.location.trim()) {
-      newErrors.location = 'Location is required';
+
+    if (!formData.district.trim()) {
+      newErrors.district = 'District is required';
+      isValid = false;
     }
+
+    if (!formData.division.trim()) {
+      newErrors.division = 'Division is required';
+      isValid = false;
+    }
+
+    if (!formData.taluk.trim()) {
+      newErrors.taluk = 'Taluk is required';
+      isValid = false;
+    }
+
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return isValid;
   };
 
   const handleSubmit = async (e) => {
@@ -144,10 +101,9 @@ const GrievanceForm = () => {
       formDataToSend.append('title', formData.title.trim());
       formDataToSend.append('department', formData.department);
       formDataToSend.append('description', formData.description.trim());
-      formDataToSend.append('location', formData.location.trim());
-      if (formData.coordinates) {
-        formDataToSend.append('coordinates', JSON.stringify(formData.coordinates));
-      }
+      formDataToSend.append('district', formData.district);
+      formDataToSend.append('division', formData.division);
+      formDataToSend.append('taluk', formData.taluk);
 
       // Append attachments
       formData.attachments.forEach(file => {
@@ -233,30 +189,16 @@ const GrievanceForm = () => {
             />
           </FormControl>
 
-          <TextField
-            fullWidth
-            required
-            label="Location"
-            name="location"
-            value={formData.location}
-            onChange={handleChange}
-            error={!!errors.location}
-            helperText={errors.location}
-            InputProps={{
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    onClick={getCurrentLocation}
-                    disabled={isGettingLocation}
-                    edge="end"
-                  >
-                    <LocationOnIcon />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-            sx={{ mb: 2 }}
-          />
+          <Box sx={{ my: 2 }}>
+            <LocationDropdowns
+              onLocationChange={handleLocationChange}
+              initialValues={{
+                district: formData.district,
+                division: formData.division,
+                taluk: formData.taluk
+              }}
+            />
+          </Box>
 
           <TextField
             fullWidth
@@ -272,54 +214,59 @@ const GrievanceForm = () => {
             sx={{ mb: 2 }}
           />
 
-          <Box sx={{ mb: 3 }}>
+          <Box sx={{ mt: 3 }}>
             <Typography variant="subtitle1" gutterBottom>
               Additional Attachments
+            </Typography>
+            <Typography variant="caption" display="block" gutterBottom color="text.secondary">
+              Max file size: 5MB. Supported formats: PDF, DOC, DOCX, JPG, PNG
             </Typography>
             <input
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               style={{ display: 'none' }}
-              id="attachments"
+              id="file-upload"
               type="file"
               multiple
-              onChange={handleFileChange}
+              onChange={(e) => {
+                const files = Array.from(e.target.files);
+                setFormData(prev => ({
+                  ...prev,
+                  attachments: files
+                }));
+              }}
             />
-            <label htmlFor="attachments">
+            <label htmlFor="file-upload">
               <Button
-                variant="outlined"
                 component="span"
+                variant="outlined"
                 startIcon={<UploadIcon />}
-                fullWidth
+                sx={{ mt: 1 }}
               >
                 Choose Files
               </Button>
             </label>
-            {errors.attachments && (
-              <Typography color="error" variant="caption" display="block">
-                {errors.attachments}
+            {formData.attachments.length > 0 && (
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                {formData.attachments.length} file(s) selected
               </Typography>
             )}
-            <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 1 }}>
-              Max file size: 5MB. Supported formats: PDF, DOC, DOCX, JPG, PNG
-            </Typography>
           </Box>
 
-          {/* Action Buttons */}
-          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+          <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Button
               type="submit"
               variant="contained"
               color="primary"
+              fullWidth
               disabled={isSubmitting}
-              sx={{ minWidth: 150 }}
             >
               {isSubmitting ? 'Submitting...' : 'Submit Grievance'}
             </Button>
             <Button
               variant="outlined"
+              color="secondary"
+              fullWidth
               onClick={() => navigate('/dashboard')}
-              disabled={isSubmitting}
-              sx={{ minWidth: 150 }}
             >
               Cancel
             </Button>

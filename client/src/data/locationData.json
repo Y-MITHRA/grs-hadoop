@@ -1,0 +1,73 @@
+{
+  "districts": [
+    {
+      "name": "Chennai",
+      "divisions": [
+        {
+          "name": "Chennai Central",
+          "taluks": ["Egmore", "Tondiarpet", "Mylapore", "Triplicane"]
+        },
+        {
+          "name": "Chennai South",
+          "taluks": ["Adyar", "Guindy", "Tambaram", "Chengalpattu"]
+        },
+        {
+          "name": "Chennai North",
+          "taluks": ["Ambattur", "Avadi", "Tiruvottiyur", "Madhavaram"]
+        }
+      ]
+    },
+    {
+      "name": "Coimbatore",
+      "divisions": [
+        {
+          "name": "Coimbatore North",
+          "taluks": ["Singanallur", "Peelamedu", "Saibaba Colony", "R.S. Puram"]
+        },
+        {
+          "name": "Coimbatore South",
+          "taluks": ["Gandhipuram", "Race Course", "Tatabad", "Kovaipudur"]
+        }
+      ]
+    },
+    {
+      "name": "Madurai",
+      "divisions": [
+        {
+          "name": "Madurai Central",
+          "taluks": ["Anna Nagar", "K.K. Nagar", "Villapuram", "Thirunagar"]
+        },
+        {
+          "name": "Madurai South",
+          "taluks": ["Tirumangalam", "Melur", "Vadipatti", "Usilampatti"]
+        }
+      ]
+    },
+    {
+      "name": "Salem",
+      "divisions": [
+        {
+          "name": "Salem East",
+          "taluks": ["Hasthampatti", "Fairlands", "Fort", "Shevapet"]
+        },
+        {
+          "name": "Salem West",
+          "taluks": ["Suramangalam", "Ammapet", "Fairlands", "Gugai"]
+        }
+      ]
+    },
+    {
+      "name": "Tiruchirappalli",
+      "divisions": [
+        {
+          "name": "Tiruchirappalli Central",
+          "taluks": ["Srirangam", "Thiruverumbur", "Thiruvaanaikoil", "Manachanallur"]
+        },
+        {
+          "name": "Tiruchirappalli South",
+          "taluks": ["Lalgudi", "Manapparai", "Thuraiyur", "Uppiliyapuram"]
+        }
+      ]
+    }
+  ]
+} 

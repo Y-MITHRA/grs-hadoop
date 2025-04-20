@@ -76,17 +76,20 @@ const grievanceSchema = new mongoose.Schema({
     required: true,
     default: 'RTO'
   },
-  location: {
+  district: {
     type: String,
     required: true,
     trim: true
   },
-  coordinates: {
-    type: {
-      latitude: Number,
-      longitude: Number
-    },
-    required: false
+  division: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  taluk: {
+    type: String,
+    required: true,
+    trim: true
   },
   petitioner: {
     type: mongoose.Schema.Types.ObjectId,

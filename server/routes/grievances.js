@@ -55,15 +55,15 @@ router.post('/', isAuthenticated, async (req, res) => {
     }
 
     try {
-      const { title, description, subDepartment, location, coordinates } = req.body;
+      const { title, description, district, division, taluk } = req.body;
 
       // Enforce RTO department
       const department = 'RTO';
 
       // Validate required fields
-      if (!title || !description || !location) {
+      if (!title || !description || !district || !division || !taluk) {
         return res.status(400).json({ 
-          message: 'Missing required fields. Please provide title, description, and location.' 
+          message: 'Missing required fields. Please provide title, description, district, division, and taluk.' 
         });
       }
 
@@ -75,11 +75,11 @@ router.post('/', isAuthenticated, async (req, res) => {
       // Find nearest officials from main GRS portal
       let nearestOfficeOfficials = [];
       try {
-        // Create a temporary grievance ID for finding nearest office
-        const tempId = `temp_${Date.now()}`;
         const grsResponse = await axios.post('http://localhost:5000/api/grievances/find-nearest-office', {
           department: 'RTO',
-          coordinates: coordinates ? JSON.parse(coordinates) : null
+          district,
+          division,
+          taluk
         }, {
           headers: {
             'Content-Type': 'application/json'
@@ -94,8 +94,9 @@ router.post('/', isAuthenticated, async (req, res) => {
         title: title.trim(),
         department,
         description: description.trim(),
-        location: location.trim(),
-        coordinates: coordinates ? JSON.parse(coordinates) : null,
+        district: district.trim(),
+        division: division.trim(),
+        taluk: taluk.trim(),
         petitioner: req.session.userId,
         portal_type: 'RTO',
         assignedOfficials: nearestOfficeOfficials
