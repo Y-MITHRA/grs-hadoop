@@ -149,22 +149,27 @@ const SubmitGrievance = () => {
             let response;
             // Form-based submission
             if (activeTab === 'form') {
-                const requestData = {
-                    title: formData.title,
-                    description: formData.description,
-                    department: formData.department,
-                    district: formData.district,
-                    division: formData.division,
-                    taluk: formData.taluk
-                };
+                const formDataToSubmit = new FormData();
 
-                console.log('Submitting form grievance with data:', requestData);
-                response = await authenticatedFetch('/api/grievances', {
+                // Add JSON data
+                formDataToSubmit.append('title', formData.title);
+                formDataToSubmit.append('description', formData.description);
+                formDataToSubmit.append('department', formData.department);
+                formDataToSubmit.append('district', formData.district);
+                formDataToSubmit.append('division', formData.division);
+                formDataToSubmit.append('taluk', formData.taluk);
+
+                // Add attachments
+                if (formData.attachments && formData.attachments.length > 0) {
+                    for (let i = 0; i < formData.attachments.length; i++) {
+                        formDataToSubmit.append('attachments', formData.attachments[i]);
+                    }
+                }
+
+                console.log('Submitting form grievance with data and attachments');
+                response = await authenticatedFetch('/api/grievances/with-attachments', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestData)
+                    body: formDataToSubmit
                 });
             }
             // Document-based submission

@@ -27,12 +27,12 @@ import {
     getTimelineStages,
     escalateGrievance,
     getEscalatedGrievances,
-    respondToEscalation,
     analyzePriorityWithGemini,
     checkRepetitiveCases
 } from '../controllers/grievanceController.js';
 import { processDocument, upload } from '../controllers/documentController.js';
 import Grievance from '../models/Grievance.js';
+import { respondToEscalation } from '../controllers/respondToEscalation.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -68,6 +68,9 @@ const uploadResolution = multer({
 
 // Create new grievance (Petitioner only)
 router.post('/', auth, createGrievance);
+
+// Create new grievance with attachments (Petitioner only)
+router.post('/with-attachments', auth, upload.array('attachments'), createGrievance);
 
 // Process document and create grievance (Petitioner only)
 router.post('/document', auth, upload.single('document'), processDocument);

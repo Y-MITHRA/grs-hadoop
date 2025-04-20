@@ -179,9 +179,31 @@ const PetitionerDashboard = () => {
         }
     };
 
-    const handleGiveFeedback = (grievance) => {
-        setSelectedGrievanceForFeedback(grievance);
-        setShowFeedbackModal(true);
+    const handleGiveFeedback = async (grievance) => {
+        try {
+            // First, get the latest grievance data to make sure we have current feedback status
+            const response = await authenticatedFetch(`http://localhost:5000/api/grievances/${grievance._id}/status`);
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch grievance details');
+            }
+
+            const updatedGrievance = await response.json();
+
+            // Check if feedback already exists using the updated data
+            if (updatedGrievance.feedback && updatedGrievance.feedback.rating) {
+                toast.error('Feedback has already been submitted for this grievance');
+                return;
+            }
+
+            // If no feedback exists, proceed with showing the modal
+            setSelectedGrievanceForFeedback(updatedGrievance);
+            setShowFeedbackModal(true);
+
+        } catch (error) {
+            console.error('Error fetching grievance details:', error);
+            toast.error(error.message || 'Failed to fetch grievance details');
+        }
     };
 
     const submitFeedback = async () => {
@@ -191,8 +213,8 @@ const PetitionerDashboard = () => {
                 return;
             }
 
-            // Check if feedback already exists
-            if (selectedGrievanceForFeedback.feedback) {
+            // More robust check for existing feedback
+            if (selectedGrievanceForFeedback.feedback && selectedGrievanceForFeedback.feedback.rating) {
                 toast.error('Feedback has already been submitted for this grievance');
                 setShowFeedbackModal(false);
                 return;
@@ -229,13 +251,15 @@ const PetitionerDashboard = () => {
         } catch (error) {
             console.error('Error submitting feedback:', error);
             toast.error(error.message || 'Failed to submit feedback');
-            // Close the modal if it was a duplicate submission error
-            if (error.message.includes('already submitted')) {
+
+            // Close the modal for any error containing "already submitted"
+            if (error.message && error.message.toLowerCase().includes('already submitted')) {
                 setShowFeedbackModal(false);
                 setFeedbackRating(0);
                 setFeedbackComment('');
                 setSelectedGrievanceForFeedback(null);
-                fetchGrievances(); // Refresh to get latest data
+                // Refresh to get latest data
+                fetchGrievances();
             }
         }
     };

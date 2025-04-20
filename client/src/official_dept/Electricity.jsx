@@ -528,12 +528,20 @@ const ElectricityDashboard = () => {
                   <div className="mb-3">
                     <h5 className="font-medium">Original Document:</h5>
                     <a
-                      href={`http://localhost:5000/uploads/documents/${selectedGrievance.originalDocument.path.split('/').pop()}`}
+                      href={`http://localhost:5000/uploads/documents/${selectedGrievance.originalDocument.path.split(/[\/\\]/).pop()}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mt-2"
+                      className="inline-flex items-center mt-2 px-4 py-2 bg-blue-500 text-white font-medium rounded hover:bg-blue-600 transition-colors"
+                      style={{
+                        fontSize: '0.875rem',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem'
+                      }}
                     >
-                      <FaEye className="mr-2" /> View Document
+                      <FaEye /> View Document
                     </a>
                   </div>
                 )}
@@ -541,16 +549,24 @@ const ElectricityDashboard = () => {
                 {selectedGrievance.attachments && selectedGrievance.attachments.length > 0 && (
                   <div>
                     <h5 className="font-medium">Additional Attachments:</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                    <div className="grid grid-cols-1 gap-2 mt-2">
                       {selectedGrievance.attachments.map((attachment, index) => (
                         <a
                           key={index}
-                          href={`http://localhost:5000/uploads/documents/${attachment.path.split('/').pop()}`}
+                          href={`http://localhost:5000/uploads/documents/${attachment.path.split(/[\/\\]/).pop()}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                          className="inline-flex items-center px-4 py-2 bg-blue-500 text-white font-medium rounded hover:bg-blue-600 transition-colors"
+                          style={{
+                            fontSize: '0.875rem',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.5rem'
+                          }}
                         >
-                          <FaEye className="mr-2" /> Attachment {index + 1}
+                          <FaEye /> Attachment {index + 1}
                         </a>
                       ))}
                     </div>

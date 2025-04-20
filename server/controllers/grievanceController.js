@@ -1,9 +1,11 @@
+import mongoose from 'mongoose';
+import Petitioner from '../models/Petitioner.js';
 import Grievance from '../models/Grievance.js';
-import { mapCategoryToDepartment } from '../utils/departmentMapper.js';
 import Official from '../models/Official.js';
+import Notification from '../models/Notification.js';
+import { mapCategoryToDepartment } from '../utils/departmentMapper.js';
 import Admin from '../models/Admin.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import Notification from '../models/Notification.js';
 import { createNotification } from './notificationController.js';
 
 // Update resource management
@@ -302,8 +304,8 @@ export const createGrievance = async (req, res) => {
             });
         }
 
-        // Create new grievance with all required fields
-        const grievance = new Grievance({
+        // Create grievance data object
+        const grievanceData = {
             title: title.trim(),
             description: description.trim(),
             department,
@@ -326,8 +328,25 @@ export const createGrievance = async (req, res) => {
                 updatedByType: 'petitioner',
                 comment: 'Grievance submitted'
             }]
-        });
+        };
 
+        // If attachments were uploaded (multer middleware sets req.files)
+        if (req.files && req.files.length > 0) {
+            console.log('Processing attachments:', req.files.length);
+
+            // Format attachments for storage
+            const attachments = req.files.map(file => ({
+                filename: file.originalname,
+                path: file.path,
+                uploadedAt: new Date()
+            }));
+
+            // Add attachments to grievance data
+            grievanceData.attachments = attachments;
+        }
+
+        // Create and save grievance
+        const grievance = new Grievance(grievanceData);
         await grievance.save();
 
         // Notify all matching officials
@@ -636,17 +655,14 @@ export const getGrievanceStatus = async (req, res) => {
         const { id } = req.params;
         const grievance = await Grievance.findById(id)
             .populate('petitioner', 'name email')
-            .populate('assignedTo', 'firstName lastName email')
-            .select('status statusHistory');
+            .populate('assignedTo', 'firstName lastName email');
 
         if (!grievance) {
             return res.status(404).json({ error: 'Grievance not found' });
         }
 
-        res.json({
-            status: grievance.status,
-            history: grievance.statusHistory
-        });
+        // Return the full grievance object instead of just status and history
+        res.json(grievance);
     } catch (error) {
         console.error('Error fetching grievance status:', error);
         res.status(500).json({ error: 'Failed to fetch grievance status' });
@@ -844,7 +860,8 @@ export const submitFeedback = async (req, res) => {
             return res.status(400).json({ error: 'Can only submit feedback for resolved grievances' });
         }
 
-        if (grievance.feedback) {
+        // More robust check for existing feedback
+        if (grievance.feedback && grievance.feedback.rating) {
             return res.status(400).json({ error: 'Feedback already submitted' });
         }
 
@@ -1276,206 +1293,6 @@ export const getEscalatedGrievances = async (req, res) => {
         console.error('Error getting escalated grievances:', error);
         res.status(500).json({
             error: 'Failed to get escalated grievances',
-            details: error.message
-        });
-    }
-};
-
-// Respond to escalation (admin only)
-export const respondToEscalation = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { escalationResponse, newStatus, newAssignedTo, isReassignment, notification } = req.body;
-        const adminId = req.user?.id;
-
-        // Validate admin user
-        if (!adminId) {
-            return res.status(401).json({ error: 'Unauthorized - Admin ID not found' });
-        }
-
-        // Validate required fields
-        if (!escalationResponse?.trim()) {
-            return res.status(400).json({ error: 'Escalation response is required' });
-        }
-
-        // Find and update the grievance
-        const grievance = await Grievance.findById(id)
-            .populate('petitioner', 'firstName lastName')
-            .populate('assignedTo', 'firstName lastName');
-
-        if (!grievance) {
-            return res.status(404).json({ error: 'Grievance not found' });
-        }
-
-        // Verify that the grievance is actually escalated
-        if (!grievance.isEscalated) {
-            return res.status(400).json({ error: 'This grievance is not escalated' });
-        }
-
-        // Update grievance fields
-        grievance.escalationResponse = escalationResponse.trim();
-        grievance.escalationStatus = 'Resolved';
-
-        // Handle reassignment
-        if (isReassignment && newAssignedTo) {
-            try {
-                // Verify the new official exists
-                const newOfficial = await Official.findById(newAssignedTo)
-                    .select('firstName lastName email');
-                if (!newOfficial) {
-                    return res.status(400).json({ error: 'Selected official not found' });
-                }
-
-                const previousOfficialId = grievance.assignedTo?._id;
-                const previousStatus = grievance.status; // Store previous status
-
-                // Update assigned official
-                grievance.assignedTo = newAssignedTo;
-
-                // Update assignedOfficials array
-                if (!grievance.assignedOfficials) {
-                    grievance.assignedOfficials = [];
-                }
-                if (!grievance.assignedOfficials.includes(newAssignedTo)) {
-                    grievance.assignedOfficials.push(newAssignedTo);
-                }
-
-                // Always preserve the previous status if it was in-progress
-                if (previousStatus === 'in-progress') {
-                    grievance.status = 'in-progress';
-
-                    // Add timeline entry for reassignment with resource context
-                    grievance.timelineStages.push({
-                        stageName: 'Reassigned',
-                        date: new Date(),
-                        description: `${grievance.priority} Priority Grievance reassigned to ${newOfficial.firstName} ${newOfficial.lastName}. Previous resource requirements and in-progress status maintained.`
-                    });
-
-                    // Notification for new official about existing resources and status
-                    try {
-                        await Notification.create({
-                            recipient: newAssignedTo,
-                            recipientType: 'Official',
-                            type: 'CASE_REASSIGNED',
-                            message: `You have been assigned grievance #${grievance.petitionId} which is currently in-progress. This case has existing resource requirements that were previously submitted.`,
-                            grievanceId: grievance._id
-                        });
-                        console.log(`Notification created for new official: ${newAssignedTo} (in-progress case)`);
-                    } catch (notifError) {
-                        console.error('Failed to create notification for new official:', notifError);
-                    }
-                } else {
-                    // Only set to assigned if it wasn't in-progress
-                    grievance.status = 'assigned';
-
-                    // Add timeline entry for reassignment
-                    grievance.timelineStages.push({
-                        stageName: 'Reassigned',
-                        date: new Date(),
-                        description: `${grievance.priority} Priority Grievance reassigned to ${newOfficial.firstName} ${newOfficial.lastName}`
-                    });
-
-                    // Regular notification for new official
-                    try {
-                        await Notification.create({
-                            recipient: newAssignedTo,
-                            recipientType: 'Official',
-                            type: 'CASE_REASSIGNED',
-                            message: `You have been assigned grievance #${grievance.petitionId}. Please review and submit resource requirements if needed.`,
-                            grievanceId: grievance._id
-                        });
-                        console.log(`Notification created for new official: ${newAssignedTo} (assigned case)`);
-                    } catch (notifError) {
-                        console.error('Failed to create notification for new official:', notifError);
-                    }
-                }
-
-                // Notification for the previous official
-                if (previousOfficialId) {
-                    await Notification.create({
-                        recipient: previousOfficialId,
-                        recipientType: 'Official',
-                        type: 'REASSIGNMENT',
-                        message: `WARNING: Your ${grievance.priority.toLowerCase()} priority grievance #${grievance.petitionId} has been reassigned from you to ${newOfficial.firstName} ${newOfficial.lastName}. This reassignment was made by an admin.`,
-                        grievanceId: grievance._id
-                    });
-                }
-
-                // Notification for the petitioner
-                await Notification.create({
-                    recipient: grievance.petitioner._id,
-                    recipientType: 'Petitioner',
-                    type: 'CASE_REASSIGNED',
-                    message: `Your grievance #${grievance.petitionId} has been reassigned to a new official${previousStatus === 'in-progress' ? ' and will continue in progress' : ''}. Admin Response: ${escalationResponse.trim()}`,
-                    grievanceId: grievance._id
-                });
-
-                // Remove the previous official from assignedOfficials array
-                grievance.assignedOfficials = grievance.assignedOfficials.filter(
-                    official => official.toString() !== previousOfficialId.toString()
-                );
-            } catch (error) {
-                console.error('Error during reassignment:', error);
-                return res.status(500).json({
-                    error: 'Failed to process reassignment',
-                    details: error.message
-                });
-            }
-        } else {
-            // If no reassignment, just notify the petitioner about the escalation response
-            try {
-                await Notification.create({
-                    recipient: grievance.petitioner._id,
-                    recipientType: 'Petitioner',
-                    type: 'ESCALATION_RESPONSE',
-                    message: `Admin has addressed your escalation for grievance #${grievance.petitionId}. Response: ${escalationResponse.trim()}`,
-                    grievanceId: grievance._id,
-                    createdAt: new Date()
-                });
-
-                // Also notify the current assigned official
-                if (grievance.assignedTo) {
-                    await Notification.create({
-                        recipient: grievance.assignedTo._id,
-                        recipientType: 'Official',
-                        type: 'ESCALATION_RESPONSE',
-                        message: `Admin has addressed the escalation for grievance #${grievance.petitionId} that you are handling.`,
-                        grievanceId: grievance._id,
-                        createdAt: new Date()
-                    });
-                }
-            } catch (notificationError) {
-                console.error('Error creating notifications:', notificationError);
-                // Continue with the process even if notifications fail
-            }
-        }
-
-        // Add escalation response to timeline
-        grievance.statusHistory.push({
-            status: grievance.status, // Use current status
-            updatedBy: adminId,
-            updatedByType: 'admin',
-            comment: `Admin responded to escalation: ${escalationResponse.trim()}`
-        });
-
-        // Add timeline entry for escalation response
-        grievance.timelineStages.push({
-            stageName: 'Resolution',
-            date: new Date(),
-            description: `Escalation addressed by Admin with response: ${escalationResponse.trim()}`
-        });
-
-        // Save the updated grievance
-        await grievance.save();
-
-        res.json({
-            message: 'Escalation response submitted successfully',
-            grievance
-        });
-    } catch (error) {
-        console.error('Error responding to escalation:', error);
-        res.status(500).json({
-            error: 'Failed to save grievance update',
             details: error.message
         });
     }

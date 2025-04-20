@@ -528,12 +528,20 @@ const RtoDashboard = () => {
                   <div className="mb-3">
                     <h5 className="font-medium">Original Document:</h5>
                     <a
-                      href={`http://localhost:5000/uploads/documents/${selectedGrievance.originalDocument.path.split('/').pop()}`}
+                      href={`http://localhost:5000/uploads/documents/${selectedGrievance.originalDocument.path.split(/[\/\\]/).pop()}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 mt-2"
+                      className="inline-flex items-center mt-2 px-4 py-2 bg-blue-500 text-white font-medium rounded hover:bg-blue-600 transition-colors"
+                      style={{
+                        fontSize: '0.875rem',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem'
+                      }}
                     >
-                      <FaEye className="mr-2" /> View Document
+                      <FaEye /> View Document
                     </a>
                   </div>
                 )}
@@ -541,16 +549,24 @@ const RtoDashboard = () => {
                 {selectedGrievance.attachments && selectedGrievance.attachments.length > 0 && (
                   <div>
                     <h5 className="font-medium">Additional Attachments:</h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                    <div className="grid grid-cols-1 gap-2 mt-2">
                       {selectedGrievance.attachments.map((attachment, index) => (
                         <a
                           key={index}
-                          href={`http://localhost:5000/uploads/documents/${attachment.path.split('/').pop()}`}
+                          href={`http://localhost:5000/uploads/documents/${attachment.path.split(/[\/\\]/).pop()}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                          className="inline-flex items-center px-4 py-2 bg-blue-500 text-white font-medium rounded hover:bg-blue-600 transition-colors"
+                          style={{
+                            fontSize: '0.875rem',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '0.5rem'
+                          }}
                         >
-                          <FaEye className="mr-2" /> Attachment {index + 1}
+                          <FaEye /> Attachment {index + 1}
                         </a>
                       ))}
                     </div>
@@ -887,227 +903,14 @@ const RtoDashboard = () => {
                   Resolved
                 </button>
               </div>
+            </div>
 
-              <div className="grievances-list">
-                {loading ? (
-                  <div className="loading">Loading...</div>
-                ) : error ? (
-                  <div className="error">{error}</div>
-                ) : grievances[activeTab].length === 0 ? (
-                  <div className="no-grievances">
-                    <h4>No grievances found in your jurisdiction</h4>
-                    <p className="text-muted">
-                      Grievances are assigned based on your jurisdiction (Taluk: {user?.taluk || 'Not set'},
-                      District: {user?.district || 'Not set'}, Division: {user?.division || 'Not set'}).
-                    </p>
-                    <p className="text-muted">
-                      While there may be pending grievances in the RTO department,
-                      none match your specific jurisdiction at this time.
-                    </p>
-                  </div>
-                ) : (
-                  grievances[activeTab].map((grievance) => renderGrievanceCard(grievance))
-                )}
-              </div>
+            <div className="grievances-container">
+              {grievances[activeTab].map(renderGrievanceCard)}
             </div>
           </main>
-
-          {showDetails && renderDetailsModal()}
         </div>
       </div>
-
-      {/* Modals */}
-      {showDeclineModal && selectedGrievance && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Decline Grievance</h3>
-            <p>Please provide a reason for declining this grievance:</p>
-            <textarea
-              value={declineReason}
-              onChange={(e) => setDeclineReason(e.target.value)}
-              className="form-control mb-3"
-              rows="4"
-              placeholder="Enter reason for declining..."
-            />
-            <div className="modal-actions">
-              <button
-                onClick={() => {
-                  setShowDeclineModal(false);
-                  setDeclineReason('');
-                }}
-                className="btn btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeclineGrievance(selectedGrievance._id)}
-                className="btn btn-danger"
-              >
-                Decline
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showResourceModal && selectedGrievance && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Resource Management</h3>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              handleResourceSubmit(selectedGrievance._id);
-            }}>
-              <div className="form-group">
-                <label>Start Date</label>
-                <input
-                  type="date"
-                  value={resourceForm.startDate}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, startDate: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>End Date</label>
-                <input
-                  type="date"
-                  value={resourceForm.endDate}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, endDate: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Requirements Needed</label>
-                <textarea
-                  value={resourceForm.requirementsNeeded}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, requirementsNeeded: e.target.value }))}
-                  required
-                  placeholder="List all requirements"
-                />
-              </div>
-              <div className="form-group">
-                <label>Funds Required (₹)</label>
-                <input
-                  type="number"
-                  value={resourceForm.fundsRequired}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, fundsRequired: e.target.value }))}
-                  required
-                  min="0"
-                />
-              </div>
-              <div className="form-group">
-                <label>Resources Required</label>
-                <textarea
-                  value={resourceForm.resourcesRequired}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, resourcesRequired: e.target.value }))}
-                  required
-                  placeholder="List all resources"
-                />
-              </div>
-              <div className="form-group">
-                <label>Manpower Needed</label>
-                <input
-                  type="number"
-                  value={resourceForm.manpowerNeeded}
-                  onChange={(e) => setResourceForm(prev => ({ ...prev, manpowerNeeded: e.target.value }))}
-                  required
-                  min="0"
-                />
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowResourceModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Submit
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showTimelineModal && selectedGrievance && (
-        <div className="modal">
-          <div className="modal-content">
-            <h3>Update Timeline</h3>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              handleTimelineSubmit(selectedGrievance._id);
-            }}>
-              <div className="form-group">
-                <label>Stage</label>
-                <select
-                  value={timelineForm.stageName}
-                  onChange={(e) => setTimelineForm(prev => ({ ...prev, stageName: e.target.value }))}
-                  required
-                >
-                  <option value="">Select Stage</option>
-                  <option value="Under Review">Under Review</option>
-                  <option value="Investigation">Investigation</option>
-                  <option value="Resolution">Resolution</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Date</label>
-                <input
-                  type="date"
-                  value={timelineForm.date}
-                  onChange={(e) => setTimelineForm(prev => ({ ...prev, date: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  value={timelineForm.description}
-                  onChange={(e) => setTimelineForm(prev => ({ ...prev, description: e.target.value }))}
-                  required
-                  placeholder="Example: Gathered evidence from site visit"
-                />
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowTimelineModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Stage
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Chat Modal */}
-      {showChat && selectedGrievance && (
-        <div className="modal fade show" style={{ display: 'block' }} tabIndex="-1">
-          <div className="modal-dialog modal-lg">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  Chat - Grievance {selectedGrievance.grievanceId}
-                </h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => {
-                    setShowChat(false);
-                    setSelectedGrievance(null);
-                  }}
-                />
-              </div>
-              <div className="modal-body" style={{ height: '500px', padding: 0 }}>
-                <ChatComponent
-                  grievanceId={selectedGrievance._id}
-                  petitionerId={selectedGrievance.petitioner?._id || selectedGrievance.petitioner}
-                  officialId={user.id}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
