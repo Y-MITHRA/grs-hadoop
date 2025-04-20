@@ -35,7 +35,7 @@ const NavBar = () => {
             return '/official-dashboard';
         }
       case 'petitioner':
-        return '/petitioner-dashboard';
+        return '/petitioner/dashboard';
       default:
         return '/';
     }

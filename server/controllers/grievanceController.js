@@ -407,19 +407,27 @@ export const getDepartmentGrievances = async (req, res) => {
         // This handles reassigned cases which may be from another jurisdiction
         if (status === 'pending') {
             query.status = 'pending';
-            // Modified query to show ALL pending grievances in the official's jurisdiction,
-            // regardless of whether they are specifically in the assignedOfficials array
-            query.$or = [
-                // All cases in the official's jurisdiction
+            // Simply show ALL pending grievances in the official's jurisdiction,
+            // regardless of whether this official existed when the grievance was created
+            query.$and = [
+                { status: 'pending' },
+                { department },
                 {
                     taluk: official.taluk,
                     district: official.district,
-                    division: official.division,
-                    status: 'pending'
-                },
-                // Cases specifically assigned to this official (for reassignments)
+                    division: official.division
+                }
+            ];
+            // Also include cases specifically assigned to this official (for reassignments)
+            query.$or = [
+                // Cases matching the $and condition above
+                { $and: query.$and },
+                // Cases specifically assigned to this official
                 { assignedTo: officialId, status: 'pending' }
             ];
+
+            // Remove the $and now that we've used it in $or
+            delete query.$and;
         } else if (status === 'assigned') {
             query.status = 'assigned';
             query.assignedTo = officialId;
@@ -435,13 +443,20 @@ export const getDepartmentGrievances = async (req, res) => {
                 {
                     taluk: official.taluk,
                     district: official.district,
-                    division: official.division,
-                    assignedOfficials: officialId
+                    division: official.division
                 }
             ];
         } else if (status === 'all') {
             // Get all grievances assigned to this official regardless of status
-            query.assignedTo = officialId;
+            query.$or = [
+                { assignedTo: officialId },
+                {
+                    taluk: official.taluk,
+                    district: official.district,
+                    division: official.division,
+                    status: 'pending'
+                }
+            ];
         }
 
         console.log('Query parameters:', JSON.stringify(query, null, 2));
@@ -1519,10 +1534,10 @@ export const analyzePriorityWithGemini = async (req, res) => {
                 const priorityResponse = response.text();
 
                 // Extract priority information with better error handling
-                const priorityMatch = priorityResponse.match(/PRIORITY:\\s*([^\\n]+)/i);
-                const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\\s*([^\\n]+)/i);
-                const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\\s*([^\\n]+)/i);
-                const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\\s*([^\\n]+)/i);
+                const priorityMatch = priorityResponse.match(/PRIORITY:\s*([^\n]+)/i);
+                const priorityExplanationMatch = priorityResponse.match(/PRIORITY_EXPLANATION:\s*([^\n]+)/i);
+                const impactAssessmentMatch = priorityResponse.match(/IMPACT_ASSESSMENT:\s*([^\n]+)/i);
+                const recommendedResponseTimeMatch = priorityResponse.match(/RECOMMENDED_RESPONSE_TIME:\s*([^\n]+)/i);
 
                 if (priorityMatch) priority = priorityMatch[1].trim();
                 if (priorityExplanationMatch) priorityExplanation = priorityExplanationMatch[1].trim();

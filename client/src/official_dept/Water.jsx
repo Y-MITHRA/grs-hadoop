@@ -850,26 +850,7 @@ const WaterDashboard = () => {
         </div>
 
         <div className="content-area">
-          <aside className="sidebar">
-            <div className="menu-item active">
-              <span className="icon">📋</span>
-              <span>Grievances</span>
-            </div>
-            <div className="menu-item">
-              <span className="icon">📊</span>
-              <span>Reports</span>
-            </div>
-            <div className="menu-item">
-              <span className="icon">⚙️</span>
-              <span>Settings</span>
-            </div>
-            <div className="menu-item" onClick={logout}>
-              <span className="icon">🚪</span>
-              <span>Logout</span>
-            </div>
-          </aside>
-
-          <main className="main-content">
+          <main className="main-content w-100">
             <div className="page-header">
               <h1>Grievances</h1>
             </div>
@@ -909,15 +890,7 @@ const WaterDashboard = () => {
                   <div className="error">{error}</div>
                 ) : filteredGrievances.length === 0 ? (
                   <div className="no-grievances">
-                    <h4>No grievances found in your jurisdiction</h4>
-                    <p className="text-muted">
-                      Grievances are assigned based on your jurisdiction (Taluk: {user?.taluk || 'Not set'},
-                      District: {user?.district || 'Not set'}, Division: {user?.division || 'Not set'}).
-                    </p>
-                    <p className="text-muted">
-                      While there may be pending grievances in the Water department,
-                      none match your specific jurisdiction at this time.
-                    </p>
+                    <h4>No grievances found</h4>
                   </div>
                 ) : (
                   filteredGrievances.map((grievance) => renderGrievanceCard(grievance))

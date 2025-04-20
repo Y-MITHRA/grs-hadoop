@@ -210,7 +210,7 @@ const RtoDashboard = () => {
             description: grievance.description || 'No Description',
             createdAt: grievance.createdAt || new Date().toISOString(),
             priority: priorityData.priority,
-            priorityExplanation: priorityData.explanation,
+            priorityExplanation: priorityData.priorityExplanation,
             impactAssessment: priorityData.impactAssessment,
             recommendedResponseTime: priorityData.recommendedResponseTime,
             originalDocument: grievance.originalDocument || null,
@@ -852,26 +852,7 @@ const RtoDashboard = () => {
         </div>
 
         <div className="content-area">
-          <aside className="sidebar">
-            <div className="menu-item active">
-              <span className="icon">📋</span>
-              <span>Grievances</span>
-            </div>
-            <div className="menu-item">
-              <span className="icon">📊</span>
-              <span>Reports</span>
-            </div>
-            <div className="menu-item">
-              <span className="icon">⚙️</span>
-              <span>Settings</span>
-            </div>
-            <div className="menu-item" onClick={logout}>
-              <span className="icon">🚪</span>
-              <span>Logout</span>
-            </div>
-          </aside>
-
-          <main className="main-content">
+          <main className="main-content w-100">
             <div className="page-header">
               <h1>Grievances</h1>
             </div>
@@ -906,7 +887,13 @@ const RtoDashboard = () => {
             </div>
 
             <div className="grievances-container">
-              {grievances[activeTab].map(renderGrievanceCard)}
+              {grievances[activeTab].length === 0 ? (
+                <div className="no-grievances">
+                  <h4>No grievances found</h4>
+                </div>
+              ) : (
+                grievances[activeTab].map(renderGrievanceCard)
+              )}
             </div>
           </main>
         </div>
