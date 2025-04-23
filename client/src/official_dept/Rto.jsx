@@ -40,6 +40,9 @@ const RtoDashboard = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [showResourceModal, setShowResourceModal] = useState(false);
   const [showTimelineModal, setShowTimelineModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignedTo, setAssignedTo] = useState('');
+  const [assignedOfficers, setAssignedOfficers] = useState([]);
   const [resourceForm, setResourceForm] = useState({
     startDate: '',
     endDate: '',
@@ -49,9 +52,9 @@ const RtoDashboard = () => {
     manpowerNeeded: ''
   });
   const [timelineForm, setTimelineForm] = useState({
-    stageName: '',
-    date: '',
-    description: ''
+    startDate: '',
+    endDate: '',
+    milestones: [{ description: '', date: '' }]
   });
 
   const getStatusBadgeClass = (status) => {
@@ -94,6 +97,7 @@ const RtoDashboard = () => {
 
     // Fetch initial data
     fetchGrievances();
+    fetchAssignedOfficers();
   }, [user, activeTab, priorityFilter]);
 
   const analyzePriorityLocally = (grievance) => {
@@ -258,23 +262,20 @@ const RtoDashboard = () => {
     }
   };
 
-  const handleAcceptGrievance = async (grievanceId) => {
+  const handleAccept = async (grievanceId) => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
+      if (!token) throw new Error('No authentication token found');
 
       const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/accept`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to accept grievance');
-      }
+      if (!response.ok) throw new Error('Failed to accept grievance');
 
       toast.success('Grievance accepted successfully');
       fetchGrievances();
@@ -422,9 +423,7 @@ const RtoDashboard = () => {
   const handleResourceSubmit = async (grievanceId) => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
+      if (!token) throw new Error('No authentication token found');
 
       const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resource-management`, {
         method: 'POST',
@@ -435,33 +434,28 @@ const RtoDashboard = () => {
         body: JSON.stringify(resourceForm)
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to update resource management');
-      }
+      if (!response.ok) throw new Error('Failed to submit resource management');
 
-      toast.success('Resource management updated successfully');
       setShowResourceModal(false);
-      setResourceForm({
-        startDate: '',
-        endDate: '',
-        requirementsNeeded: '',
-        fundsRequired: '',
-        resourcesRequired: '',
-        manpowerNeeded: ''
-      });
+      toast.success('Resource management details submitted successfully');
+
+      // Automatically start progress after resource management submission
+      await handleStartProgress(grievanceId);
+
       fetchGrievances();
     } catch (error) {
-      console.error('Error updating resource management:', error);
-      toast.error('Failed to update resource management');
+      console.error('Error submitting resource management:', error);
+      toast.error('Failed to submit resource management details');
     }
   };
 
-  const handleTimelineSubmit = async (grievanceId) => {
+  const handleTimelineSubmit = async (e) => {
+    e.preventDefault();
     try {
       const token = localStorage.getItem('token');
       if (!token) throw new Error('No authentication token found');
 
-      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/timeline-stage`, {
+      const response = await fetch(`http://localhost:5000/api/grievances/${selectedGrievance._id}/timeline`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -470,14 +464,89 @@ const RtoDashboard = () => {
         body: JSON.stringify(timelineForm)
       });
 
-      if (!response.ok) throw new Error('Failed to update timeline');
+      if (!response.ok) throw new Error('Failed to submit timeline');
 
       setShowTimelineModal(false);
-      toast.success('Timeline updated successfully');
+      setTimelineForm({
+        startDate: '',
+        endDate: '',
+        milestones: [{ description: '', date: '' }]
+      });
+      toast.success('Timeline submitted successfully');
       fetchGrievances();
     } catch (error) {
-      console.error('Error updating timeline:', error);
-      toast.error('Failed to update timeline');
+      console.error('Error submitting timeline:', error);
+      toast.error('Failed to submit timeline');
+    }
+  };
+
+  const addMilestone = () => {
+    setTimelineForm(prev => ({
+      ...prev,
+      milestones: [...prev.milestones, { description: '', date: '' }]
+    }));
+  };
+
+  const removeMilestone = (index) => {
+    setTimelineForm(prev => ({
+      ...prev,
+      milestones: prev.milestones.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateMilestone = (index, field, value) => {
+    setTimelineForm(prev => ({
+      ...prev,
+      milestones: prev.milestones.map((milestone, i) => 
+        i === index ? { ...milestone, [field]: value } : milestone
+      )
+    }));
+  };
+
+  const handleAssign = async (grievanceId) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No authentication token found');
+
+      const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/assign`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ assignedTo })
+      });
+
+      if (!response.ok) throw new Error('Failed to assign grievance');
+
+      setShowAssignModal(false);
+      setAssignedTo('');
+      toast.success('Grievance assigned successfully');
+      fetchGrievances();
+    } catch (error) {
+      console.error('Error assigning grievance:', error);
+      toast.error('Failed to assign grievance');
+    }
+  };
+
+  const fetchAssignedOfficers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) throw new Error('No authentication token found');
+
+      const response = await fetch('http://localhost:5000/api/officers', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch officers');
+
+      const data = await response.json();
+      setAssignedOfficers(data);
+    } catch (error) {
+      console.error('Error fetching officers:', error);
+      toast.error('Failed to fetch officers');
     }
   };
 
@@ -509,76 +578,6 @@ const RtoDashboard = () => {
               </div>
               <p className="text-gray-700 leading-relaxed">
                 {selectedGrievance.priorityExplanation || 'Priority explanation not available'}
-              </p>
-            </div>
-
-            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Impact Assessment</h3>
-              <p className="text-gray-700 leading-relaxed">
-                {selectedGrievance.impactAssessment || 'Impact assessment not available'}
-              </p>
-            </div>
-
-            {/* Document Viewing Section */}
-            {(selectedGrievance.originalDocument || (selectedGrievance.attachments && selectedGrievance.attachments.length > 0)) && (
-              <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Submitted Documents</h3>
-
-                {selectedGrievance.originalDocument && (
-                  <div className="mb-3">
-                    <h5 className="font-medium">Original Document:</h5>
-                    <a
-                      href={`http://localhost:5000/uploads/documents/${selectedGrievance.originalDocument.path.split(/[\/\\]/).pop()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center mt-2 px-4 py-2 bg-blue-500 text-white font-medium rounded hover:bg-blue-600 transition-colors"
-                      style={{
-                        fontSize: '0.875rem',
-                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.5rem'
-                      }}
-                    >
-                      <FaEye /> View Document
-                    </a>
-                  </div>
-                )}
-
-                {selectedGrievance.attachments && selectedGrievance.attachments.length > 0 && (
-                  <div>
-                    <h5 className="font-medium">Additional Attachments:</h5>
-                    <div className="grid grid-cols-1 gap-2 mt-2">
-                      {selectedGrievance.attachments.map((attachment, index) => (
-                        <a
-                          key={index}
-                          href={`http://localhost:5000/uploads/documents/${attachment.path.split(/[\/\\]/).pop()}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center px-4 py-2 bg-blue-500 text-white font-medium rounded hover:bg-blue-600 transition-colors"
-                          style={{
-                            fontSize: '0.875rem',
-                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '0.5rem'
-                          }}
-                        >
-                          <FaEye /> Attachment {index + 1}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="bg-gray-50 p-6 rounded-lg border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommended Response Time</h3>
-              <p className="text-gray-700 leading-relaxed">
-                {selectedGrievance.recommendedResponseTime || 'Standard response time'}
               </p>
             </div>
 
@@ -674,7 +673,7 @@ const RtoDashboard = () => {
           {activeTab === 'pending' && (
             <>
               <button
-                onClick={() => handleAcceptGrievance(grievance._id)}
+                onClick={() => handleAccept(grievance._id)}
                 className="btn btn-success"
               >
                 <FaCheck className="mr-2" /> Accept
@@ -897,6 +896,222 @@ const RtoDashboard = () => {
             </div>
           </main>
         </div>
+
+        {showResourceModal && selectedGrievance && (
+          <div className="modal">
+            <div className="modal-content">
+              <h3>Resource Management</h3>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                handleResourceSubmit(selectedGrievance._id);
+              }}>
+                <div className="form-group">
+                  <label>Start Date</label>
+                  <input
+                    type="date"
+                    value={resourceForm.startDate}
+                    onChange={(e) => setResourceForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>End Date</label>
+                  <input
+                    type="date"
+                    value={resourceForm.endDate}
+                    onChange={(e) => setResourceForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Requirements Needed</label>
+                  <textarea
+                    value={resourceForm.requirementsNeeded}
+                    onChange={(e) => setResourceForm(prev => ({ ...prev, requirementsNeeded: e.target.value }))}
+                    required
+                    placeholder="List all requirements"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Funds Required (₹)</label>
+                  <input
+                    type="number"
+                    value={resourceForm.fundsRequired}
+                    onChange={(e) => setResourceForm(prev => ({ ...prev, fundsRequired: e.target.value }))}
+                    required
+                    min="0"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Resources Required</label>
+                  <textarea
+                    value={resourceForm.resourcesRequired}
+                    onChange={(e) => setResourceForm(prev => ({ ...prev, resourcesRequired: e.target.value }))}
+                    required
+                    placeholder="List all resources"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Manpower Needed</label>
+                  <input
+                    type="number"
+                    value={resourceForm.manpowerNeeded}
+                    onChange={(e) => setResourceForm(prev => ({ ...prev, manpowerNeeded: e.target.value }))}
+                    required
+                    min="0"
+                  />
+                </div>
+                <div className="modal-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowResourceModal(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Submit
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {showAssignModal && selectedGrievance && (
+          <div className="modal">
+            <div className="modal-content">
+              <h3>Assign Grievance</h3>
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                handleAssign(selectedGrievance._id);
+              }}>
+                <div className="form-group">
+                  <label>Assign To</label>
+                  <select
+                    value={assignedTo}
+                    onChange={(e) => setAssignedTo(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Officer</option>
+                    {assignedOfficers.map(officer => (
+                      <option key={officer._id} value={officer._id}>
+                        {officer.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="modal-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowAssignModal(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Assign
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {showTimelineModal && selectedGrievance && (
+          <div className="modal">
+            <div className="modal-content">
+              <h3>Add Timeline</h3>
+              <form onSubmit={handleTimelineSubmit}>
+                <div className="form-group">
+                  <label>Start Date</label>
+                  <input
+                    type="date"
+                    value={timelineForm.startDate}
+                    onChange={(e) => setTimelineForm(prev => ({ ...prev, startDate: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>End Date</label>
+                  <input
+                    type="date"
+                    value={timelineForm.endDate}
+                    onChange={(e) => setTimelineForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Milestones</label>
+                  {timelineForm.milestones.map((milestone, index) => (
+                    <div key={index} className="milestone-group">
+                      <input
+                        type="text"
+                        placeholder="Milestone Description"
+                        value={milestone.description}
+                        onChange={(e) => updateMilestone(index, 'description', e.target.value)}
+                        required
+                      />
+                      <input
+                        type="date"
+                        value={milestone.date}
+                        onChange={(e) => updateMilestone(index, 'date', e.target.value)}
+                        required
+                      />
+                      {index > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          onClick={() => removeMilestone(index)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={addMilestone}
+                  >
+                    Add Milestone
+                  </button>
+                </div>
+                <div className="modal-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowTimelineModal(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Submit Timeline
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {showChat && selectedGrievance && (
+          <div className="modal fade show" style={{ display: 'block' }} tabIndex="-1">
+            <div className="modal-dialog modal-lg">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    Chat - Grievance {selectedGrievance.grievanceId}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={() => {
+                      setShowChat(false);
+                      setSelectedGrievance(null);
+                    }}
+                  ></button>
+                </div>
+                <div className="modal-body" style={{ height: '500px', padding: 0 }}>
+                  <ChatComponent
+                    grievanceId={selectedGrievance._id}
+                    petitionerId={selectedGrievance.petitioner?._id || selectedGrievance.petitioner}
+                    officialId={user.id}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDetails && renderDetailsModal()}
       </div>
     </div>
   );
