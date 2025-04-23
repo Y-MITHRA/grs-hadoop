@@ -4,6 +4,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
 
 dotenv.config();
 
@@ -35,6 +36,9 @@ app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Session configuration
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -64,6 +68,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/grievance
 // Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/grievances', require('./routes/grievances'));
+app.use('/api/documents', require('./routes/documents'));
 
 const PORT = process.env.PORT || 5001; // Changed port to 5001 for RTO Portal
 app.listen(PORT, () => {

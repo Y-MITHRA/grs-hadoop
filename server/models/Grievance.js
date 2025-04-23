@@ -1,5 +1,43 @@
 const mongoose = require('mongoose');
 
+const attachmentSchema = new mongoose.Schema({
+  filename: {
+    type: String,
+    required: true
+  },
+  path: {
+    type: String,
+    required: true
+  },
+  mimetype: {
+    type: String,
+    required: true
+  },
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const resolutionDocumentSchema = new mongoose.Schema({
+  filename: {
+    type: String,
+    required: true
+  },
+  path: {
+    type: String,
+    required: true
+  },
+  mimetype: {
+    type: String,
+    required: true
+  },
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
 const statusHistorySchema = new mongoose.Schema({
   status: {
     type: String,
@@ -8,18 +46,10 @@ const statusHistorySchema = new mongoose.Schema({
   },
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    refPath: 'statusHistory.updatedByType'
-  },
-  updatedByType: {
-    type: String,
-    required: true,
-    enum: ['petitioner', 'official', 'admin']
-  },
-  comment: {
-    type: String,
+    ref: 'User',
     required: true
   },
+  comment: String,
   timestamp: {
     type: Date,
     default: Date.now
@@ -93,7 +123,7 @@ const grievanceSchema = new mongoose.Schema({
   },
   petitioner: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Petitioner',
+    ref: 'User',
     required: true
   },
   assignedTo: {
@@ -112,16 +142,8 @@ const grievanceSchema = new mongoose.Schema({
   },
   statusHistory: [statusHistorySchema],
   chatMessages: [chatMessageSchema],
-  originalDocument: {
-    filename: String,
-    path: String,
-    uploadedAt: Date
-  },
-  resolutionDocument: {
-    filename: String,
-    path: String,
-    uploadedAt: Date
-  },
+  attachments: [attachmentSchema],
+  resolutionDocument: resolutionDocumentSchema,
   resolution: {
     text: String,
     date: Date
@@ -135,11 +157,6 @@ const grievanceSchema = new mongoose.Schema({
     comment: String,
     date: Date
   },
-  attachments: [{
-    filename: String,
-    path: String,
-    uploadedAt: Date
-  }],
   createdAt: {
     type: Date,
     default: Date.now
