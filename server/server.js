@@ -36,10 +36,24 @@ const io = new Server(httpServer, {
     }
 });
 
-// Create uploads directory if it doesn't exist
-if (!fs.existsSync('uploads')) {
-    fs.mkdirSync('uploads');
-}
+// Create required directories if they don't exist
+const createRequiredDirectories = () => {
+    const directories = [
+        'uploads',
+        'uploads/documents',
+        'uploads/resolution-docs'
+    ];
+    
+    directories.forEach(dir => {
+        const fullPath = path.join(__dirname, dir);
+        if (!fs.existsSync(fullPath)) {
+            fs.mkdirSync(fullPath, { recursive: true });
+        }
+    });
+};
+
+// Create required directories
+createRequiredDirectories();
 
 // Database Connection
 connectDB();
@@ -68,11 +82,13 @@ cron.schedule('* * * * *', async () => {
 app.use(express.json());
 app.use(cors({
     origin: ["http://localhost:3000", "http://localhost:5173"],
-    methods: ['GET', 'POST', 'DELETE', 'PUT'],
     credentials: true
 }));
-app.use('/uploads', express.static('uploads')); // Serve uploaded files
-app.use('/uploads/documents', express.static(path.join(__dirname, 'uploads/documents'))); // Serve document files
+
+// Serve static files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads/documents', express.static(path.join(__dirname, 'uploads/documents')));
+app.use('/uploads/resolution-docs', express.static(path.join(__dirname, 'uploads/resolution-docs')));
 
 // Routes
 app.use('/api', registrationRoutes);

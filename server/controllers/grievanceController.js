@@ -866,19 +866,30 @@ export const uploadResolutionDocument = async (req, res) => {
         // Update grievance with document details
         grievance.resolutionDocument = {
             filename: req.file.originalname,
-            path: 'uploads/resolution-docs/' + req.file.filename,
+            path: `uploads/resolution-docs/${req.file.filename}`,
             uploadedAt: new Date()
         };
 
+        // Update status to resolved
+        grievance.status = 'resolved';
+
         // Update status history
         grievance.statusHistory.push({
-            status: grievance.status,
+            status: 'resolved',
             updatedBy: officialId,
             updatedByType: 'official',
             comment: 'Resolution document uploaded'
         });
 
         await grievance.save();
+
+        // Create notification for the petitioner
+        await createNotification({
+            recipient: grievance.petitioner,
+            type: 'GRIEVANCE_RESOLVED',
+            message: `Your grievance (${grievance.petitionId}) has been resolved. A resolution document has been uploaded.`,
+            grievanceId: grievance._id
+        });
 
         res.json({
             message: 'Resolution document uploaded successfully',
