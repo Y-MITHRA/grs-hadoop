@@ -24,7 +24,8 @@ import {
   Description as DescriptionIcon,
   AttachFile as AttachFileIcon,
   Download as DownloadIcon,
-  Visibility as VisibilityIcon
+  Visibility as VisibilityIcon,
+  Close as CloseIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
@@ -45,11 +46,35 @@ const GrievanceDetail = () => {
 
   const fetchGrievanceDetails = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/grievances/${id}`);
+      const response = await axios.get(`http://localhost:5001/api/grievances/${id}`, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        withCredentials: true
+      });
+      
+      if (!response.data) {
+        throw new Error('No data received from server');
+      }
+
+      // Log the response for debugging
+      console.log('Grievance details:', response.data);
+      console.log('Resolution document:', response.data.resolutionDocument);
+      
+      // Check if this is a resolved grievance from the main portal
+      if (response.data.status === 'resolved' && response.data.resolutionDocument) {
+        console.log('Found resolution document:', response.data.resolutionDocument);
+      }
+      
       setGrievance(response.data);
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching grievance details:', err);
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        stack: err.stack
+      });
       setError(err.response?.data?.message || 'Failed to fetch grievance details');
       setLoading(false);
     }
@@ -72,8 +97,23 @@ const GrievanceDetail = () => {
 
   const handleDownload = async (file) => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/documents/${file._id}`, {
-        responseType: 'blob'
+      if (!file) {
+        console.error('Invalid file object:', file);
+        setError('Invalid document reference');
+        return;
+      }
+
+      // Extract filename from path for resolution documents
+      const filename = file.path ? file.path.split('/').pop() : null;
+      
+      // Use proxy route for resolution documents, regular route for attachments
+      const documentUrl = file._id 
+        ? `http://localhost:5001/api/documents/${file._id}/download`
+        : `http://localhost:5001/api/documents/resolution/${filename}`;
+
+      const response = await axios.get(documentUrl, {
+        responseType: 'blob',
+        withCredentials: true
       });
       
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -86,22 +126,39 @@ const GrievanceDetail = () => {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error downloading file:', err);
-      setError('Failed to download file');
+      setError('Failed to download file. ' + (err.response?.data?.message || err.message));
     }
   };
 
   const handleView = async (file) => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/documents/${file._id}`, {
-        responseType: 'blob'
+      if (!file) {
+        console.error('Invalid file object:', file);
+        setError('Invalid document reference');
+        return;
+      }
+
+      // Extract filename from path for resolution documents
+      const filename = file.path ? file.path.split('/').pop() : null;
+      
+      // Use proxy route for resolution documents, regular route for attachments
+      const documentUrl = file._id 
+        ? `http://localhost:5001/api/documents/${file._id}/view`
+        : `http://localhost:5001/api/documents/resolution/${filename}`;
+      
+      console.log('Attempting to view document:', documentUrl);
+
+      const response = await axios.get(documentUrl, {
+        responseType: 'blob',
+        withCredentials: true
       });
       
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       setSelectedDocument(url);
       setViewerOpen(true);
     } catch (err) {
       console.error('Error viewing file:', err);
-      setError('Failed to view file');
+      setError('Failed to view file. ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -229,30 +286,41 @@ const GrievanceDetail = () => {
 
           {grievance.resolutionDocument && (
             <Grid item xs={12}>
-              <Typography variant="h6" gutterBottom>
-                Resolution Document
-              </Typography>
-              <List>
-                <ListItem>
-                  <ListItemIcon>
-                    <DescriptionIcon />
-                  </ListItemIcon>
-                  <ListItemText primary={grievance.resolutionDocument.filename} />
-                  <Button
-                    startIcon={<DownloadIcon />}
-                    onClick={() => handleDownload(grievance.resolutionDocument)}
-                    sx={{ mr: 1 }}
-                  >
-                    Download
-                  </Button>
-                  <Button
-                    startIcon={<VisibilityIcon />}
-                    onClick={() => handleView(grievance.resolutionDocument)}
-                  >
-                    View
-                  </Button>
-                </ListItem>
-              </List>
+              <Paper elevation={2} sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+                <Typography variant="h6" gutterBottom color="primary">
+                  Resolution Document
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  This document contains the official resolution for your grievance.
+                </Typography>
+                <List>
+                  <ListItem>
+                    <ListItemIcon>
+                      <DescriptionIcon color="primary" />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={grievance.resolutionDocument.filename}
+                      secondary={`Uploaded on ${new Date(grievance.resolutionDocument.uploadedAt).toLocaleDateString()}`}
+                    />
+                    <Button
+                      startIcon={<DownloadIcon />}
+                      onClick={() => handleDownload(grievance.resolutionDocument)}
+                      variant="outlined"
+                      sx={{ mr: 1 }}
+                    >
+                      Download
+                    </Button>
+                    <Button
+                      startIcon={<VisibilityIcon />}
+                      onClick={() => handleView(grievance.resolutionDocument)}
+                      variant="contained"
+                      color="primary"
+                    >
+                      View Document
+                    </Button>
+                  </ListItem>
+                </List>
+              </Paper>
             </Grid>
           )}
         </Grid>
@@ -266,8 +334,11 @@ const GrievanceDetail = () => {
         }}
         maxWidth="lg"
         fullWidth
+        PaperProps={{
+          sx: { height: '90vh' }
+        }}
       >
-        <DialogContent sx={{ position: 'relative', p: 0, height: '80vh' }}>
+        <DialogContent sx={{ position: 'relative', p: 0, height: '100%' }}>
           <IconButton
             onClick={() => {
               setViewerOpen(false);
@@ -277,6 +348,7 @@ const GrievanceDetail = () => {
               position: 'absolute',
               right: 8,
               top: 8,
+              zIndex: 1,
               color: 'white',
               bgcolor: 'rgba(0, 0, 0, 0.5)',
               '&:hover': {
@@ -289,7 +361,12 @@ const GrievanceDetail = () => {
           {selectedDocument && (
             <iframe
               src={selectedDocument}
-              style={{ width: '100%', height: '100%', border: 'none' }}
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                border: 'none',
+                display: 'block'
+              }}
               title="Document Viewer"
             />
           )}

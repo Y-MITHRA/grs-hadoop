@@ -111,7 +111,6 @@ const Dashboard = () => {
               <TableRow>
                 <TableCell>Title</TableCell>
                 <TableCell>Department</TableCell>
-                <TableCell>Location</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Submitted On</TableCell>
                 <TableCell align="center">Actions</TableCell>
@@ -122,7 +121,6 @@ const Dashboard = () => {
                 <TableRow key={grievance._id}>
                   <TableCell>{grievance.title}</TableCell>
                   <TableCell>{grievance.department}</TableCell>
-                  <TableCell>{grievance.location}</TableCell>
                   <TableCell>
                     <Chip
                       label={grievance.status}

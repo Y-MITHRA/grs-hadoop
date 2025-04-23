@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 
 const AdminDashboard = () => {
   const [grievances, setGrievances] = useState([]);
@@ -124,12 +125,11 @@ const AdminDashboard = () => {
           <TableHead>
             <TableRow>
               <TableCell>Title</TableCell>
-              <TableCell>Category</TableCell>
-              <TableCell>Location</TableCell>
-              <TableCell>Submitted By</TableCell>
-              <TableCell>Date</TableCell>
+              <TableCell>Department</TableCell>
               <TableCell>Status</TableCell>
-              <TableCell>Actions</TableCell>
+              <TableCell>Submitted By</TableCell>
+              <TableCell>Submitted On</TableCell>
+              <TableCell align="center">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -137,11 +137,6 @@ const AdminDashboard = () => {
               <TableRow key={grievance._id}>
                 <TableCell>{grievance.title}</TableCell>
                 <TableCell>{grievance.department}</TableCell>
-                <TableCell>{grievance.location}</TableCell>
-                <TableCell>{grievance.user.name}</TableCell>
-                <TableCell>
-                  {new Date(grievance.createdAt).toLocaleDateString()}
-                </TableCell>
                 <TableCell>
                   <Chip
                     label={grievance.status}
@@ -149,28 +144,19 @@ const AdminDashboard = () => {
                     size="small"
                   />
                 </TableCell>
+                <TableCell>{grievance.user.name}</TableCell>
                 <TableCell>
-                  <Box display="flex" gap={1}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={() => navigate(`/grievance/${grievance._id}`)}
-                    >
-                      View
-                    </Button>
-                    <FormControl size="small">
-                      <Select
-                        value={grievance.status}
-                        onChange={(e) => handleStatusChange(grievance._id, e.target.value)}
-                        size="small"
-                      >
-                        <MenuItem value="Pending">Pending</MenuItem>
-                        <MenuItem value="In Progress">In Progress</MenuItem>
-                        <MenuItem value="Resolved">Resolved</MenuItem>
-                        <MenuItem value="Rejected">Rejected</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Box>
+                  {new Date(grievance.createdAt).toLocaleDateString()}
+                </TableCell>
+                <TableCell align="center">
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<VisibilityIcon />}
+                    onClick={() => navigate(`/grievance/${grievance._id}`)}
+                  >
+                    View
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}

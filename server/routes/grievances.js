@@ -125,14 +125,38 @@ router.get('/:id', isAuthenticated, async (req, res) => {
     if (!req.session || !req.session.userId) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
+
+    // Find the grievance and populate necessary fields
     const grievance = await Grievance.findOne({
       _id: req.params.id,
       petitioner: req.session.userId
-    }).lean();
+    })
+    .select({
+      title: 1,
+      description: 1,
+      status: 1,
+      department: 1,
+      district: 1,
+      division: 1,
+      taluk: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      attachments: 1,
+      resolutionDocument: 1,
+      resolution: 1
+    })
+    .lean();
 
     if (!grievance) {
       return res.status(404).json({ message: 'Grievance not found' });
     }
+
+    // Log for debugging
+    console.log('Found grievance:', {
+      id: grievance._id,
+      status: grievance.status,
+      hasResolutionDoc: !!grievance.resolutionDocument
+    });
 
     res.json(grievance);
   } catch (error) {
