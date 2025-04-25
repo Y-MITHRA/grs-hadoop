@@ -398,13 +398,12 @@ const WaterDashboard = () => {
             body: formData
           });
 
-          const uploadData = await uploadResponse.json();
-
           if (!uploadResponse.ok) {
+            const uploadData = await uploadResponse.json();
             throw new Error(uploadData.error || 'Failed to upload resolution document');
           }
 
-          // Then resolve the grievance
+          // After successful upload, resolve the grievance
           const resolveResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resolve`, {
             method: 'POST',
             headers: {
@@ -412,18 +411,17 @@ const WaterDashboard = () => {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              resolutionMessage: 'Grievance resolved with attached document'
+              resolution: 'Grievance resolved with attached document'
             })
           });
 
-          const resolveData = await resolveResponse.json();
-
           if (!resolveResponse.ok) {
+            const resolveData = await resolveResponse.json();
             throw new Error(resolveData.error || 'Failed to resolve grievance');
           }
 
           // Refresh the grievances list
-          fetchGrievances();
+          await fetchGrievances();
           toast.success('Grievance resolved successfully');
         } catch (error) {
           console.error('Error in file upload:', error);

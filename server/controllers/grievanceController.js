@@ -857,26 +857,59 @@ export const uploadResolutionDocument = async (req, res) => {
         const officialId = req.user.id;
         const officialDepartment = req.user.department;
 
+        console.log('Upload resolution document request:', {
+            id,
+            officialId,
+            officialDepartment,
+            hasFile: !!req.file,
+            fileInfo: req.file ? {
+                filename: req.file.originalname,
+                path: req.file.path
+            } : 'No file'
+        });
+
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
+        console.log('Finding grievance...');
         const grievance = await Grievance.findById(id);
+
         if (!grievance) {
+            console.error(`Grievance with ID ${id} not found`);
             return res.status(404).json({ error: 'Grievance not found' });
         }
 
+        console.log('Grievance found:', {
+            id: grievance._id,
+            title: grievance.title,
+            status: grievance.status,
+            assignedTo: grievance.assignedTo,
+            assignedOfficials: grievance.assignedOfficials
+        });
+
         // Check if official is authorized (either assigned directly or in assignedOfficials array)
-        const isAuthorized = (grievance.assignedTo && grievance.assignedTo.toString() === officialId) ||
-            (grievance.assignedOfficials && grievance.assignedOfficials.includes(officialId));
+        const isDirectlyAssigned = grievance.assignedTo && grievance.assignedTo.toString() === officialId;
+        const isInAssignedOfficials = grievance.assignedOfficials && grievance.assignedOfficials.includes(officialId);
+        const isAuthorized = isDirectlyAssigned || isInAssignedOfficials;
+
+        console.log('Authorization check:', {
+            isDirectlyAssigned,
+            isInAssignedOfficials,
+            isAuthorized
+        });
 
         if (!isAuthorized) {
             return res.status(403).json({ error: 'Not authorized to upload resolution document' });
         }
 
         if (grievance.department !== officialDepartment) {
+            console.error(`Department mismatch: Grievance department ${grievance.department}, Official department ${officialDepartment}`);
             return res.status(403).json({ error: 'Not authorized to handle grievances from other departments' });
         }
+
+        console.log('Updating grievance with document details...');
+        console.log('Document path:', `uploads/resolution-docs/${req.file.filename}`);
 
         // Update grievance with document details
         grievance.resolutionDocument = {
@@ -896,15 +929,25 @@ export const uploadResolutionDocument = async (req, res) => {
             comment: 'Resolution document uploaded'
         });
 
+        console.log('Saving grievance...');
         await grievance.save();
+        console.log('Grievance saved successfully');
 
         // Create notification for the petitioner
-        await createNotification({
-            recipient: grievance.petitioner,
-            type: 'GRIEVANCE_RESOLVED',
-            message: `Your grievance (${grievance.petitionId}) has been resolved. A resolution document has been uploaded.`,
-            grievanceId: grievance._id
-        });
+        try {
+            console.log('Creating notification for petitioner:', grievance.petitioner);
+            await createNotification(
+                grievance.petitioner,
+                'Petitioner',
+                'GRIEVANCE_RESOLVED',
+                `Your grievance (${grievance.petitionId}) has been resolved. A resolution document has been uploaded.`,
+                grievance._id
+            );
+            console.log('Notification created successfully');
+        } catch (notificationError) {
+            console.error('Error creating notification:', notificationError);
+            // Continue even if notification fails
+        }
 
         res.json({
             message: 'Resolution document uploaded successfully',
@@ -912,7 +955,13 @@ export const uploadResolutionDocument = async (req, res) => {
         });
     } catch (error) {
         console.error('Error uploading resolution document:', error);
-        res.status(500).json({ error: 'Failed to upload resolution document' });
+        console.error('Error stack:', error.stack);
+        console.error('Error details:', JSON.stringify({
+            id: req.params.id,
+            file: req.file ? req.file.originalname : 'No file',
+            user: req.user ? { id: req.user.id, role: req.user.role } : 'No user'
+        }));
+        res.status(500).json({ error: 'Failed to upload resolution document', details: error.message });
     }
 };
 
