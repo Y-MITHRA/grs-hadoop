@@ -84,6 +84,18 @@ export const auth = async (req, res, next) => {
         // Now verify the token
         const verified = jwt.verify(token, JWT_SECRET, JWT_OPTIONS);
 
+        // Check for service token
+        if (verified.role === 'service') {
+            // Special case for service account tokens
+            req.user = {
+                id: verified.id || 'service',
+                role: 'service',
+                department: verified.department || 'System'
+            };
+            console.log('✅ Service authentication successful');
+            return next();
+        }
+
         // Look up user based on role and ID
         let user;
         switch (verified.role) {

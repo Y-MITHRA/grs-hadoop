@@ -256,6 +256,13 @@ const analyzePriorityLocally = (grievance) => {
 // Update the createGrievance function's Gemini integration
 export const createGrievance = async (req, res) => {
     try {
+        // Debug information
+        console.log('Create Grievance Request:');
+        console.log('- Headers:', req.headers);
+        console.log('- Body:', req.body);
+        console.log('- Files:', req.files);
+        console.log('- User:', req.user);
+
         const {
             title,
             description,
@@ -268,17 +275,25 @@ export const createGrievance = async (req, res) => {
         } = req.body;
 
         // Validate required fields
-        if (!title || !description || !department || !taluk || !district || !division) {
+        const missingFields = {
+            title: !title,
+            description: !description,
+            department: !department,
+            taluk: !taluk,
+            district: !district,
+            division: !division
+        };
+
+        const hasMissingFields = Object.values(missingFields).some(isMissing => isMissing);
+
+        if (hasMissingFields) {
+            console.log('Missing fields:', missingFields);
+            console.log('Request body:', req.body);
+
             return res.status(400).json({
                 error: 'Missing required fields',
-                missingFields: {
-                    title: !title,
-                    description: !description,
-                    department: !department,
-                    taluk: !taluk,
-                    district: !district,
-                    division: !division
-                }
+                missingFields,
+                receivedData: req.body
             });
         }
 
@@ -556,7 +571,7 @@ export const acceptGrievance = async (req, res) => {
 
         console.log('Grievance department:', grievance.department, 'Official department:', officialDepartment);
         if (grievance.department !== officialDepartment) {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 error: 'Not authorized to accept grievances from other departments',
                 details: {
                     grievanceDepartment: grievance.department,
@@ -579,19 +594,19 @@ export const acceptGrievance = async (req, res) => {
 
         // Set required fields based on grievance priority
         const priority = grievance.priority || 'medium';
-        
+
         // Set recommended response time based on priority
         const responseTimeMap = {
             high: 24, // 24 hours for high priority
             medium: 72, // 72 hours for medium priority
             low: 120 // 120 hours for low priority
         };
-        
+
         grievance.recommendedResponseTime = responseTimeMap[priority] || 72;
-        
+
         // Set impact assessment based on priority and description
         grievance.impactAssessment = `Based on the grievance details and ${priority} priority level, this case requires attention within ${grievance.recommendedResponseTime} hours.`;
-        
+
         // Set priority explanation
         grievance.priorityExplanation = `This grievance has been classified as ${priority} priority based on the nature of the complaint and department guidelines.`;
 
@@ -610,7 +625,7 @@ export const acceptGrievance = async (req, res) => {
         });
     } catch (error) {
         console.error('Error accepting grievance:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to accept grievance',
             details: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined

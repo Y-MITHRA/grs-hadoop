@@ -31,7 +31,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: ["http://localhost:3000", "http://localhost:5173"],
+        origin: ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:5173"],
         methods: ["GET", "POST", "DELETE", "PUT"]
     }
 });
@@ -43,7 +43,7 @@ const createRequiredDirectories = () => {
         'uploads/documents',
         'uploads/resolution-docs'
     ];
-    
+
     directories.forEach(dir => {
         const fullPath = path.join(__dirname, dir);
         if (!fs.existsSync(fullPath)) {
@@ -81,7 +81,7 @@ cron.schedule('* * * * *', async () => {
 // Middleware
 app.use(express.json());
 app.use(cors({
-    origin: ["http://localhost:3000", "http://localhost:5173"],
+    origin: ["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:5173"],
     credentials: true
 }));
 
