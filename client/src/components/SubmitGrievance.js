@@ -8,7 +8,6 @@ import {
   Button,
   Box,
   Alert,
-  MenuItem,
   Grid,
   IconButton,
   Tooltip,
@@ -16,25 +15,25 @@ import {
   FormControl,
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import LocationOnIcon from '@mui/icons-material/LocationOn';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'react-hot-toast';
+import LocationDropdowns from './LocationDropdowns';
 
 const SubmitGrievance = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     title: '',
-    department: 'Water Department',
+    department: 'Water',
     description: '',
-    location: '',
-    coordinates: null,
+    district: '',
+    division: '',
+    taluk: '',
   });
   const [files, setFiles] = useState([]);
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -42,6 +41,30 @@ const SubmitGrievance = () => {
       ...prev,
       [name]: value
     }));
+
+    // Clear error for this field if it exists
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+  };
+
+  const handleLocationChange = ({ district, division, taluk }) => {
+    setFormData(prev => ({
+      ...prev,
+      district,
+      division,
+      taluk
+    }));
+
+    // Clear errors for location fields
+    const updatedErrors = { ...errors };
+    if (district && updatedErrors.district) delete updatedErrors.district;
+    if (division && updatedErrors.division) delete updatedErrors.division;
+    if (taluk && updatedErrors.taluk) delete updatedErrors.taluk;
+    setErrors(updatedErrors);
   };
 
   const handleFileChange = (e) => {
@@ -59,71 +82,41 @@ const SubmitGrievance = () => {
     setFiles(validFiles);
   };
 
-  const getCurrentLocation = () => {
-    setIsGettingLocation(true);
-    if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser');
-      setIsGettingLocation(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setFormData(prev => ({
-          ...prev,
-          coordinates: { latitude, longitude }
-        }));
-
-        // Get address from coordinates using reverse geocoding
-        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`)
-          .then(response => response.json())
-          .then(data => {
-            setFormData(prev => ({
-              ...prev,
-              location: data.display_name
-            }));
-            toast.success('Location captured successfully!');
-          })
-          .catch(error => {
-            console.error('Error getting address:', error);
-            toast.error('Could not get address from coordinates');
-          })
-          .finally(() => {
-            setIsGettingLocation(false);
-          });
-      },
-      (error) => {
-        console.error('Error getting location:', error);
-        toast.error('Could not get your location. Please enter it manually.');
-        setIsGettingLocation(false);
-      }
-    );
-  };
-
   const validateForm = () => {
+    const newErrors = {};
+    let isValid = true;
+
     if (!formData.title.trim()) {
-      setError('Title is required');
-      return false;
+      newErrors.title = 'Title is required';
+      isValid = false;
     }
-    if (!formData.department) {
-      setError('Department is required');
-      return false;
-    }
+
     if (!formData.description.trim()) {
-      setError('Description is required');
-      return false;
+      newErrors.description = 'Description is required';
+      isValid = false;
     }
-    if (!formData.location.trim()) {
-      setError('Location is required');
-      return false;
+
+    if (!formData.district.trim()) {
+      newErrors.district = 'District is required';
+      isValid = false;
     }
-    return true;
+
+    if (!formData.division.trim()) {
+      newErrors.division = 'Division is required';
+      isValid = false;
+    }
+
+    if (!formData.taluk.trim()) {
+      newErrors.taluk = 'Taluk is required';
+      isValid = false;
+    }
+
+    setErrors(newErrors);
+    return isValid;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
 
     if (!validateForm()) {
       return;
@@ -132,38 +125,87 @@ const SubmitGrievance = () => {
     setLoading(true);
 
     try {
-      const formDataToSend = new FormData();
-      Object.keys(formData).forEach(key => {
-        if (key === 'coordinates') {
-          formDataToSend.append(key, JSON.stringify(formData[key]));
-        } else {
-          formDataToSend.append(key, formData[key]);
-        }
+      // Create the grievance data
+      const grievanceData = {
+        title: formData.title.trim(),
+        department: formData.department,
+        description: formData.description.trim(),
+        district: formData.district,
+        division: formData.division,
+        taluk: formData.taluk
+      };
+
+      // Log what we're sending for debugging
+      console.log('Submitting grievance with data:', {
+        ...grievanceData,
+        description: grievanceData.description.substring(0, 20) + '...',
+        attachments: files.length
       });
 
-      files.forEach(file => {
-        formDataToSend.append('attachments', file);
-      });
+      let response;
 
-      const token = localStorage.getItem('token');
-      await axios.post(
-        'http://localhost:5002/api/grievances',
-        formDataToSend,
-        {
-          withCredentials: true,
-          headers: {
-            'Content-Type': 'multipart/form-data',
-            'Authorization': `Bearer ${token}`
-          },
-        }
-      );
+      // For file uploads, create better FormData
+      if (files.length > 0) {
+        console.log('Using endpoint with attachments');
+        const formDataToSend = new FormData();
+
+        // Add grievance data to FormData one by one
+        formDataToSend.append('title', grievanceData.title);
+        formDataToSend.append('department', grievanceData.department);
+        formDataToSend.append('description', grievanceData.description);
+        formDataToSend.append('district', grievanceData.district);
+        formDataToSend.append('division', grievanceData.division);
+        formDataToSend.append('taluk', grievanceData.taluk);
+
+        // Add files to FormData
+        files.forEach(file => {
+          formDataToSend.append('attachments', file);
+        });
+
+        console.log('FormData keys:', [...formDataToSend.keys()]);
+
+        response = await axios.post(
+          'http://localhost:5000/api/grievances/with-attachments',
+          formDataToSend,
+          {
+            withCredentials: true,
+            headers: {
+              'Content-Type': 'multipart/form-data',
+              'Authorization': `Bearer ${token}`
+            },
+          }
+        );
+      } else {
+        // No files - use regular JSON endpoint
+        console.log('Using standard endpoint (no attachments)');
+        response = await axios.post(
+          'http://localhost:5000/api/grievances',
+          grievanceData,
+          {
+            withCredentials: true,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+          }
+        );
+      }
+
+      console.log('Grievance submission successful:', response.data);
       toast.success('Grievance submitted successfully!');
       navigate('/dashboard');
     } catch (err) {
       console.error('Submission error:', err);
-      const errorMessage = err.response?.data?.message || 'Failed to submit grievance';
-      setError(errorMessage);
-      toast.error(errorMessage);
+      // Extract detailed error message from response if available
+      const errorDetail = err.response?.data?.error || err.response?.data?.message || 'Failed to submit grievance';
+      const missingFields = err.response?.data?.missingFields;
+
+      if (missingFields) {
+        console.error('Missing fields:', missingFields);
+      }
+
+      setErrors({ form: errorDetail });
+      toast.error(errorDetail);
     } finally {
       setLoading(false);
     }
@@ -177,9 +219,9 @@ const SubmitGrievance = () => {
             Submit New Grievance
           </Typography>
 
-          {error && (
+          {errors.form && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
+              {errors.form}
             </Alert>
           )}
 
@@ -188,7 +230,7 @@ const SubmitGrievance = () => {
               Petitioner Details
             </Typography>
             <Grid container spacing={2}>
-              <Grid item xs={12}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Name"
@@ -196,7 +238,7 @@ const SubmitGrievance = () => {
                   disabled
                 />
               </Grid>
-              <Grid item xs={12}>
+              <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
                   label="Email"
@@ -218,6 +260,8 @@ const SubmitGrievance = () => {
                   value={formData.title}
                   onChange={handleInputChange}
                   required
+                  error={!!errors.title}
+                  helperText={errors.title}
                 />
               </Grid>
               <Grid item xs={12}>
@@ -225,40 +269,26 @@ const SubmitGrievance = () => {
                   <TextField
                     label="Department"
                     name="department"
-                    value="Water Department"
+                    value="Water"
                     disabled
                     fullWidth
                   />
                 </FormControl>
               </Grid>
+
               <Grid item xs={12}>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth
-                    label="Location"
-                    name="location"
-                    value={formData.location}
-                    onChange={handleInputChange}
-                    required
-                    placeholder="Enter your address or location details"
-                    disabled={isGettingLocation}
+                <Box sx={{ mb: 2 }}>
+                  <LocationDropdowns
+                    onLocationChange={handleLocationChange}
+                    initialValues={{
+                      district: formData.district,
+                      division: formData.division,
+                      taluk: formData.taluk
+                    }}
                   />
-                  <Tooltip title="Use Current Location">
-                    <IconButton
-                      onClick={getCurrentLocation}
-                      disabled={isGettingLocation}
-                      color="primary"
-                    >
-                      <LocationOnIcon />
-                    </IconButton>
-                  </Tooltip>
                 </Box>
-                {formData.coordinates && (
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                    Coordinates: {formData.coordinates.latitude}, {formData.coordinates.longitude}
-                  </Typography>
-                )}
               </Grid>
+
               <Grid item xs={12}>
                 <TextField
                   fullWidth
@@ -270,6 +300,8 @@ const SubmitGrievance = () => {
                   onChange={handleInputChange}
                   required
                   placeholder="Provide detailed description of your grievance"
+                  error={!!errors.description}
+                  helperText={errors.description}
                 />
               </Grid>
             </Grid>

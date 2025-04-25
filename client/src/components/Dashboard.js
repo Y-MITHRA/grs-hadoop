@@ -15,36 +15,66 @@ import {
   Chip,
   IconButton,
   Tooltip,
+  CircularProgress,
+  Alert,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import { jwtDecode } from 'jwt-decode';
 
 const Dashboard = () => {
   const [grievances, setGrievances] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
 
   useEffect(() => {
-    fetchGrievances();
-  }, []);
+    if (token) {
+      try {
+        // Log token info for debugging
+        const decoded = jwtDecode(token);
+        console.log('Token info:', {
+          id: decoded.id,
+          role: decoded.role,
+          exp: new Date(decoded.exp * 1000).toLocaleString()
+        });
+      } catch (err) {
+        console.error('Token decode error:', err);
+      }
+      fetchGrievances();
+    } else {
+      setError('No authentication token available. Please log in again.');
+      setLoading(false);
+    }
+  }, [token]);
 
   const fetchGrievances = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('http://localhost:5002/api/grievances', {
+      if (!token) {
+        setError('No authentication token available');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Fetching grievances with token...');
+      const response = await axios.get(`http://localhost:5000/api/grievances/user/${user.id}`, {
         withCredentials: true,
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       console.log('Fetched grievances:', response.data);
-      setGrievances(response.data);
+      setGrievances(response.data.grievances || []);
+      setError('');
     } catch (err) {
-      setError('Failed to fetch grievances');
       console.error('Error fetching grievances:', err);
+      if (err.response?.status === 401) {
+        setError('Authentication failed. Please log in again.');
+      } else {
+        setError('Failed to fetch grievances. ' + (err.response?.data?.message || err.message));
+      }
     } finally {
       setLoading(false);
     }
@@ -61,6 +91,18 @@ const Dashboard = () => {
       default:
         return 'default';
     }
+  };
+
+  // Format location from district, division, taluk
+  const formatLocation = (grievance) => {
+    if (grievance.district || grievance.division || grievance.taluk) {
+      const parts = [];
+      if (grievance.taluk) parts.push(grievance.taluk);
+      if (grievance.division) parts.push(grievance.division);
+      if (grievance.district) parts.push(grievance.district);
+      return parts.join(', ');
+    }
+    return grievance.location || 'Not specified';
   };
 
   if (loading) {
@@ -116,7 +158,7 @@ const Dashboard = () => {
                 <TableRow key={grievance._id}>
                   <TableCell sx={{ maxWidth: '20%', wordBreak: 'break-word' }}>{grievance.title}</TableCell>
                   <TableCell sx={{ maxWidth: '15%', wordBreak: 'break-word' }}>{grievance.department}</TableCell>
-                  <TableCell sx={{ maxWidth: '25%', wordBreak: 'break-word' }}>{grievance.location}</TableCell>
+                  <TableCell sx={{ maxWidth: '25%', wordBreak: 'break-word' }}>{formatLocation(grievance)}</TableCell>
                   <TableCell sx={{ maxWidth: '15%' }}>
                     <Chip
                       label={grievance.status}

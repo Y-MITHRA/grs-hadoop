@@ -7,6 +7,9 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
+const fs = require('fs');
+const FormData = require('form-data');
 require('dotenv').config();
 
 const app = express();
@@ -52,6 +55,76 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/grievance
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+// IMPORTANT: Hardcoded to exactly match main-grs JWT_SECRET
+// DO NOT change this value as it must match the main system exactly
+const JWT_SECRET = 'grs-timeline-secure-jwt-secret-key-2024';
+
+// Add this function after the JWT_SECRET declaration and before the User Schema
+// Function to synchronize users with main GRS system
+async function syncUserWithMainGRS(user) {
+  try {
+    // Create the payload for creating/updating petitioner in main GRS
+    const petitionerData = {
+      _id: user._id.toString(), // Preserve the same ID
+      name: user.name,
+      email: user.email,
+      phone: user.phone || '0000000000', // Fallback for required field
+      password: Math.random().toString(36).slice(-10), // Random password (won't be used for login)
+      syncedFromPortal: 'Water'
+    };
+
+    // Generate a service token for system-to-system communication
+    const serviceToken = generateServiceToken();
+
+    // Try to find if user already exists in main GRS
+    const findResponse = await axios.get(
+      `http://localhost:5000/api/admin/petitioners/find-by-email/${user.email}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${serviceToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    ).catch(error => {
+      // If not found or other error, return null
+      console.log('User not found in main GRS, will create new:', error.response?.status);
+      return { data: null };
+    });
+
+    if (findResponse.data && findResponse.data._id) {
+      // User exists, update them
+      console.log('Found existing user in main GRS, updating:', findResponse.data._id);
+      await axios.put(
+        `http://localhost:5000/api/admin/petitioners/${findResponse.data._id}`,
+        petitionerData,
+        {
+          headers: {
+            'Authorization': `Bearer ${serviceToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+    } else {
+      // User doesn't exist, create them
+      console.log('Creating new user in main GRS with ID:', user._id);
+      await axios.post(
+        'http://localhost:5000/api/admin/petitioners/create-sync',
+        petitionerData,
+        {
+          headers: {
+            'Authorization': `Bearer ${serviceToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Failed to sync user with main GRS:', error.response?.data || error.message);
+    throw error;
+  }
+}
 
 // User Schema
 const userSchema = new mongoose.Schema({
@@ -288,6 +361,16 @@ app.post('/api/auth/register', async (req, res) => {
     });
 
     const savedUser = await user.save();
+
+    // Synchronize new user with main GRS system
+    try {
+      await syncUserWithMainGRS(savedUser);
+      console.log('New user synchronized with main GRS system');
+    } catch (syncError) {
+      console.error('Failed to sync new user with main GRS:', syncError);
+      // Continue anyway - we don't want to block registration if sync fails
+    }
+
     // Create a sanitized user object without the password
     const userResponse = {
       id: savedUser._id,
@@ -304,7 +387,6 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Login
-
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -320,6 +402,16 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     req.session.userId = user._id;
+
+    // Synchronize user with main GRS system
+    try {
+      await syncUserWithMainGRS(user);
+      console.log('User synchronized with main GRS system');
+    } catch (syncError) {
+      console.error('Failed to sync user with main GRS:', syncError);
+      // Continue anyway - we don't want to block login if sync fails
+    }
+
     res.json({
       message: 'Login successful',
       user: {
@@ -336,7 +428,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Logout
-app.post('/api/logout', (req, res) => {
+app.post('/api/auth/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) {
       return res.status(500).json({ message: 'Error logging out' });
@@ -345,10 +437,8 @@ app.post('/api/logout', (req, res) => {
   });
 });
 
-
-
 // Get current user
-app.get('/api/user', isAuthenticated, async (req, res) => {
+app.get('/api/auth/user', isAuthenticated, async (req, res) => {
   try {
     const user = await User.findById(req.session.userId).select('-password');
     res.json(user);
@@ -362,7 +452,7 @@ app.get('/api/user', isAuthenticated, async (req, res) => {
 app.post('/api/grievances', isAuthenticated, upload.array('attachments', 5), async (req, res) => {
   try {
     const { title, description, location, coordinates } = req.body;
-    
+
     // Enforce Water Department
     const department = 'Water';
 
@@ -444,6 +534,146 @@ app.get('/api/grievances/:id', isAuthenticated, async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 });
+
+// Generate a JWT token for the main GRS system
+app.get('/api/auth/token', isAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+
+    if (!user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    // Create a JWT token compatible with Main GRS
+    const payload = {
+      id: user._id.toString(),
+      role: 'petitioner',
+      department: 'Water', // Required for the Main GRS auth system
+      email: user.email, // May be needed for lookup
+      name: user.name,   // May be needed for display
+      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+    };
+
+    // Using exact same settings as Main GRS
+    const token = jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256' });
+
+    console.log('Generated token for user:', user._id.toString());
+    console.log('Token payload:', {
+      id: payload.id,
+      role: payload.role,
+      department: payload.department,
+      email: payload.email,
+      name: payload.name,
+      expiry: new Date(payload.exp * 1000).toLocaleString()
+    });
+
+    res.json({ token });
+  } catch (error) {
+    console.error('Token generation error:', error);
+    res.status(500).json({ message: 'Failed to generate token' });
+  }
+});
+
+// Also add a route to check current authentication status
+app.get('/api/auth/me', isAuthenticated, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId).select('-password');
+
+    if (!user) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    res.json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role || 'petitioner',
+      department: user.department || 'Water'
+    });
+  } catch (error) {
+    console.error('Auth check error:', error);
+    res.status(500).json({ message: 'Authentication failed' });
+  }
+});
+
+// Proxy route that forwards grievance submissions to the Main GRS system
+app.post('/api/proxy/grievances', isAuthenticated, upload.array('attachments', 5), async (req, res) => {
+  try {
+    const { title, description, district, division, taluk } = req.body;
+    const department = 'Water Department';
+
+    // Validate required fields
+    if (!title || !description || !district || !division || !taluk) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    // Create request payload for the Main GRS system
+    const formDataToSend = new FormData();
+    formDataToSend.append('title', title.trim());
+    formDataToSend.append('department', department);
+    formDataToSend.append('description', description.trim());
+    formDataToSend.append('district', district);
+    formDataToSend.append('division', division);
+    formDataToSend.append('taluk', taluk);
+
+    // Get user from database
+    const user = await User.findById(req.session.userId);
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    // Create a temporary petitioner record in Main GRS if needed
+    // This is where we would normally interface with the Main GRS auth system
+
+    // For files/attachments
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(file => {
+        // Read the file from disk
+        const fileBuffer = fs.readFileSync(file.path);
+        // Append it to the form data with buffer instead of Blob
+        formDataToSend.append('attachments', fileBuffer, {
+          filename: file.originalname,
+          contentType: file.mimetype
+        });
+      });
+    }
+
+    // Send the request to the Main GRS system with direct connection
+    // Here we're using a service-to-service approach rather than forwarding user credentials
+    const mainGRSResponse = await axios.post(
+      'http://localhost:5000/api/grievances',
+      formDataToSend,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          // Use admin credentials or service account
+          'Authorization': 'Bearer ' + generateServiceToken()
+        }
+      }
+    );
+
+    // Forward the response back to the client
+    res.status(mainGRSResponse.status).json(mainGRSResponse.data);
+  } catch (error) {
+    console.error('Proxy submission error:', error);
+    res.status(500).json({ message: 'Error submitting grievance to main system' });
+  }
+});
+
+// Add this function to generate a service token
+function generateServiceToken() {
+  // Create a special service token that Main GRS would recognize
+  // In a real-world scenario, this would be handled by OAuth2 or similar
+  // For now, we'll just generate a simple token
+  const payload = {
+    id: 'water-portal-service',
+    role: 'service',
+    department: 'Water',
+    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
+  };
+
+  return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256' });
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
