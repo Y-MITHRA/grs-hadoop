@@ -1,0 +1,52 @@
+export const mockGrievances = [
+    {
+        id: 'GR001',
+        department: 'RTO',
+        status: 'ASSIGNED',
+        priority: 'HIGH',
+        location: 'CHENNAI',
+        createdAt: '2025-05-01T10:00:00Z',
+        resolutionTime: 48,
+        description: 'License renewal delay'
+    },
+    {
+        id: 'GR002',
+        department: 'RTO',
+        status: 'IN_PROGRESS',
+        priority: 'MEDIUM',
+        location: 'MADURAI',
+        createdAt: '2025-05-02T11:00:00Z',
+        resolutionTime: null,
+        description: 'Vehicle registration issue'
+    },
+    {
+        id: 'GR003',
+        department: 'ELECTRICITY',
+        status: 'IN_PROGRESS',
+        priority: 'HIGH',
+        location: 'CHENNAI',
+        createdAt: '2025-05-03T09:00:00Z',
+        resolutionTime: null,
+        description: 'Power outage in residential area'
+    },
+    {
+        id: 'GR004',
+        department: 'ELECTRICITY',
+        status: 'RESOLVED',
+        priority: 'LOW',
+        location: 'COIMBATORE',
+        createdAt: '2025-05-01T14:00:00Z',
+        resolutionTime: 24,
+        description: 'Voltage fluctuation'
+    },
+    {
+        id: 'GR005',
+        department: 'WATER',
+        status: 'ASSIGNED',
+        priority: 'HIGH',
+        location: 'CHENNAI',
+        createdAt: '2025-05-02T16:00:00Z',
+        resolutionTime: null,
+        description: 'Water pipeline leakage'
+    }
+];

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "GR001",
+    "department": "RTO",
+    "status": "ASSIGNED",
+    "priority": "HIGH",
+    "location": "CHENNAI",
+    "createdAt": "2025-05-01T10:00:00Z",
+    "resolutionTime": 48,
+    "description": "License renewal delay"
+  }
+]
