@@ -597,11 +597,12 @@ function parseAndValidateAnalysis(analysisText) {
 
         // Normalize and validate parameters
         if (analysis.params.department) {
-            const departmentInput = analysis.params.department.charAt(0).toUpperCase() +
-                analysis.params.department.slice(1).toLowerCase();
-
-            if (VALID_DEPARTMENTS.includes(departmentInput)) {
-                analysis.params.department = departmentInput;
+            // Find a case-insensitive match in VALID_DEPARTMENTS
+            const matchedDepartment = VALID_DEPARTMENTS.find(
+                d => d.toLowerCase() === analysis.params.department.toLowerCase()
+            );
+            if (matchedDepartment) {
+                analysis.params.department = matchedDepartment;
             } else {
                 console.warn(`Invalid department: ${analysis.params.department}`);
                 delete analysis.params.department;
@@ -654,16 +655,21 @@ function parseAndValidateAnalysis(analysisText) {
             }
         }
 
-        // Normalize status and priority fields
-        if (analysis.params.status) {
-            const statusInput = analysis.params.status.charAt(0).toUpperCase() +
-                analysis.params.status.slice(1).toLowerCase();
-
-            if (VALID_STATUSES.includes(statusInput)) {
-                analysis.params.status = statusInput;
-            } else {
-                console.warn(`Invalid status: ${analysis.params.status}`);
-                delete analysis.params.status;
+        // If status is missing but searchValue contains a known status, extract it
+        if (!analysis.params.status && analysis.params.searchValue) {
+            const statusKeywords = [
+                'pending', 'pending case', 'pending cases',
+                'in progress', 'in-progress', 'progress', 'inprogress',
+                'assigned', 'assign', 'assignment',
+                'resolved', 'resolve', 'solved', 'closed',
+                'declined', 'decline',
+                'escalated', 'escalate'
+            ];
+            const found = statusKeywords.find(keyword =>
+                analysis.params.searchValue.toLowerCase().includes(keyword)
+            );
+            if (found) {
+                analysis.params.status = found;
             }
         }
 
@@ -744,6 +750,59 @@ function parseAndValidateAnalysis(analysisText) {
         }
         // Debug: After combining
         console.log('DEBUG: After combining - params.district:', analysis.params.district, 'params.division:', analysis.params.division);
+
+        // Fallback: Infer pending duration from searchValue if missing
+        if (!analysis.params.pendingDuration && analysis.params.searchValue) {
+            const match = analysis.params.searchValue.match(/pending (?:for|more than|over) (\d+) days?/i);
+            if (match) {
+                analysis.params.pendingDuration = parseInt(match[1], 10);
+            }
+        }
+        // If pendingDuration is set, add createdAt filter
+        if (analysis.params.status && analysis.params.status.toLowerCase() === 'pending' && analysis.params.pendingDuration) {
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - analysis.params.pendingDuration);
+            analysis.params.dateRange = { end: cutoff };
+        }
+
+        // Fallback: Detect group/count queries
+        let groupBy = null;
+        if (analysis.params.searchValue) {
+            if (/count cases by department|group cases by department/i.test(analysis.params.searchValue)) {
+                groupBy = 'department';
+            } else if (/group cases by department and district/i.test(analysis.params.searchValue)) {
+                groupBy = ['department', 'district'];
+            } else if (/count grievances by priority/i.test(analysis.params.searchValue)) {
+                groupBy = 'priority';
+            }
+        }
+
+        // If groupBy is set, build aggregation pipeline
+        if (groupBy) {
+            let match = { ...analysis.params };
+            // Remove group fields from match if present
+            if (Array.isArray(groupBy)) {
+                groupBy.forEach(field => delete match[field]);
+            } else {
+                delete match[groupBy];
+            }
+            // Build group object
+            let groupObj = {};
+            if (Array.isArray(groupBy)) {
+                groupBy.forEach(field => {
+                    groupObj[field] = `$${field}`;
+                });
+            } else {
+                groupObj[groupBy] = `$${groupBy}`;
+            }
+            const pipeline = [
+                { $match: match },
+                { $group: { _id: groupObj, count: { $sum: 1 } } },
+                { $sort: { count: -1 } }
+            ];
+            analysis.params.aggregation = pipeline;
+            analysis.params.groupBy = groupBy;
+        }
 
         return analysis;
     } catch (error) {
@@ -933,6 +992,22 @@ async function buildMongoQuery(analysis) {
     if (params.district) {
         query.district = { $regex: params.district, $options: 'i' };
     }
+    // Case-insensitive matching for department, priority, and status
+    if (params.department) {
+        query.department = { $regex: `^${params.department}$`, $options: 'i' };
+    }
+    if (params.priority) {
+        query.priority = { $regex: `^${params.priority}$`, $options: 'i' };
+    }
+    if (params.status) {
+        query.status = { $regex: `^${params.status}$`, $options: 'i' };
+    }
+    // If pendingDuration is set, add createdAt filter
+    if (params.status && params.status.toLowerCase() === 'pending' && params.pendingDuration) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - params.pendingDuration);
+        query.createdAt = { ...(query.createdAt || {}), $lte: cutoff };
+    }
     // Debug: Print VALID_DIVISIONS
     console.log('DEBUG: VALID_DIVISIONS:', VALID_DIVISIONS);
     // Debug: Before combining
@@ -955,12 +1030,12 @@ async function buildMongoQuery(analysis) {
 
     switch (intent) {
         case 'case_query':
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
-            if (params.priority) query.priority = params.priority;
-            if (params.status) query.status = params.status;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
             if (params.timeframe) {
                 const dateRange = calculateDateRange(params.timeframe);
                 if (dateRange) {
@@ -969,26 +1044,26 @@ async function buildMongoQuery(analysis) {
             }
             break;
         case 'resource_query':
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
-            if (params.priority) query.priority = params.priority;
-            if (params.status) query.status = params.status;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
             break;
         case 'manpower_query':
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
             break;
         case 'count_query':
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
-            if (params.priority) query.priority = params.priority;
-            if (params.status) query.status = params.status;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
             if (params.timeframe) {
                 const dateRange = calculateDateRange(params.timeframe);
                 if (dateRange) {
@@ -1002,12 +1077,12 @@ async function buildMongoQuery(analysis) {
                 countTarget: params.countTarget
             };
         case 'stats_query':
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
-            if (params.priority) query.priority = params.priority;
-            if (params.status) query.status = params.status;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
             if (params.timeframe) {
                 const dateRange = calculateDateRange(params.timeframe);
                 if (dateRange) {
@@ -1020,10 +1095,10 @@ async function buildMongoQuery(analysis) {
                 isStats: true
             };
         case 'official_info':
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
             if (params.designation) query.designation = params.designation;
             return {
                 collection: 'officials',
@@ -1037,12 +1112,12 @@ async function buildMongoQuery(analysis) {
             };
         default:
             console.warn(`Unexpected intent type: ${intent}. Defaulting to case_query.`);
-            if (params.department) query.department = params.department;
-            if (params.division) query.division = params.division;
-            if (params.district) query.district = params.district;
-            if (params.taluk) query.taluk = params.taluk;
-            if (params.priority) query.priority = params.priority;
-            if (params.status) query.status = params.status;
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
             if (params.timeframe) {
                 const dateRange = calculateDateRange(params.timeframe);
                 if (dateRange) {
@@ -1062,11 +1137,17 @@ async function buildMongoQuery(analysis) {
                     $lte: dateRange.endDate
                 };
             }
-        } else if (params.dateRange && params.dateRange.start && params.dateRange.end) {
-            query.createdAt = {
-                $gte: params.dateRange.start,
-                $lte: params.dateRange.end
-            };
+        } else if (params.dateRange) {
+            if (params.dateRange.start && params.dateRange.end) {
+                query.createdAt = {
+                    $gte: params.dateRange.start,
+                    $lte: params.dateRange.end
+                };
+            } else if (params.dateRange.end) {
+                query.createdAt = { $lte: params.dateRange.end };
+            } else if (params.dateRange.start) {
+                query.createdAt = { $gte: params.dateRange.start };
+            }
         }
     }
 
