@@ -365,7 +365,7 @@ const ElectricityDashboard = () => {
           const formData = new FormData();
           formData.append('document', file);
 
-          // First upload the document
+          // Upload the resolution document (this will also mark it as resolved)
           const uploadResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/upload-resolution`, {
             method: 'POST',
             headers: {
@@ -374,28 +374,9 @@ const ElectricityDashboard = () => {
             body: formData
           });
 
-          const uploadData = await uploadResponse.json();
-
           if (!uploadResponse.ok) {
-            throw new Error(uploadData.error || 'Failed to upload resolution document');
-          }
-
-          // Then resolve the grievance
-          const resolveResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resolve`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              resolutionMessage: 'Grievance resolved with attached document'
-            })
-          });
-
-          const resolveData = await resolveResponse.json();
-
-          if (!resolveResponse.ok) {
-            throw new Error(resolveData.error || 'Failed to resolve grievance');
+            const uploadError = await uploadResponse.json();
+            throw new Error(uploadError.error || 'Failed to upload resolution document');
           }
 
           // Refresh the grievances list

@@ -349,6 +349,23 @@ const WaterDashboard = () => {
         throw new Error('No authentication token found');
       }
 
+      // First verify the grievance exists using the status endpoint
+      const checkResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!checkResponse.ok) {
+        const errorData = await checkResponse.json();
+        throw new Error(errorData.error || 'Failed to verify grievance');
+      }
+
+      const grievanceData = await checkResponse.json();
+      if (!grievanceData) {
+        throw new Error('Grievance not found');
+      }
+
       const response = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/start-progress`, {
         method: 'POST',
         headers: {
@@ -359,15 +376,17 @@ const WaterDashboard = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start progress');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start progress');
       }
 
-      // Refresh data
-      fetchGrievances();
+      // Refresh data and update UI
+      await fetchGrievances();
       setActiveTab('inProgress');
+      toast.success('Progress started successfully');
     } catch (error) {
       console.error('Error starting progress:', error);
-      setError('Failed to start progress');
+      toast.error(error.message || 'Failed to start progress');
     }
   };
 
@@ -378,49 +397,76 @@ const WaterDashboard = () => {
         throw new Error('No authentication token found');
       }
 
+      // First, verify the grievance status
+      const checkResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!checkResponse.ok) {
+        const errorData = await checkResponse.json();
+        throw new Error(errorData.error || 'Failed to verify grievance status');
+      }
+
+      const grievanceData = await checkResponse.json();
+      console.log('Grievance status check:', {
+        status: grievanceData.status,
+        rawStatus: JSON.stringify(grievanceData.status),
+        fullData: grievanceData
+      });
+
+      if (!grievanceData) {
+        throw new Error('Grievance not found');
+      }
+
+      // Check if the status is exactly 'in-progress' (case-sensitive)
+      const currentStatus = grievanceData.status;
+      console.log('Status comparison:', {
+        currentStatus,
+        isInProgress: currentStatus === 'in-progress',
+        statusLength: currentStatus ? currentStatus.length : 0,
+        statusType: typeof currentStatus,
+        expectedStatus: 'in-progress',
+        expectedLength: 'in-progress'.length
+      });
+
+      if (currentStatus !== 'in-progress') {
+        throw new Error(`Grievance must be in progress to be resolved. Current status: ${currentStatus}`);
+      }
+
+      // Create file input for resolution document
       const fileInput = document.createElement('input');
       fileInput.type = 'file';
       fileInput.accept = '.pdf,.jpg,.jpeg,.png';
+
+      // Handle file selection
       fileInput.onchange = async (e) => {
         try {
           const file = e.target.files[0];
           if (!file) return;
 
+          console.log('Uploading resolution document...');
           const formData = new FormData();
           formData.append('document', file);
 
-          // First upload the document
+          // Upload the resolution document (this will also mark it as resolved)
           const uploadResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/upload-resolution`, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${token}`,
+              'Authorization': `Bearer ${token}`
             },
             body: formData
           });
 
           if (!uploadResponse.ok) {
-            const uploadData = await uploadResponse.json();
-            throw new Error(uploadData.error || 'Failed to upload resolution document');
+            const uploadError = await uploadResponse.json();
+            throw new Error(uploadError.error || 'Failed to upload resolution document');
           }
 
-          // After successful upload, resolve the grievance
-          const resolveResponse = await fetch(`http://localhost:5000/api/grievances/${grievanceId}/resolve`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              resolution: 'Grievance resolved with attached document'
-            })
-          });
+          console.log('Document uploaded successfully and grievance resolved');
 
-          if (!resolveResponse.ok) {
-            const resolveData = await resolveResponse.json();
-            throw new Error(resolveData.error || 'Failed to resolve grievance');
-          }
-
-          // Refresh the grievances list
+          // Refresh the grievances list and show success message
           await fetchGrievances();
           toast.success('Grievance resolved successfully');
         } catch (error) {

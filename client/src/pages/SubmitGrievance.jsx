@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NavBar from '../components/NavBar';
 import Footer from '../shared/Footer';
-import { Upload, FileText } from 'lucide-react';
+import { Upload, FileText, Mic, MicOff } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import LocationDropdowns from '../components/LocationDropdowns';
 
@@ -25,6 +25,43 @@ const SubmitGrievance = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState('');
     const [submitSuccess, setSubmitSuccess] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [selectedLanguage, setSelectedLanguage] = useState('en-IN');
+    const [recognition, setRecognition] = useState(null);
+
+    // Initialize speech recognition
+    useEffect(() => {
+        if ('webkitSpeechRecognition' in window) {
+            const recognition = new window.webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = selectedLanguage;
+
+            recognition.onresult = (event) => {
+                const transcript = Array.from(event.results)
+                    .map(result => result[0].transcript)
+                    .join('');
+
+                setFormData(prev => ({
+                    ...prev,
+                    description: transcript
+                }));
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                toast.error('Error with voice input. Please try again.');
+                setIsRecording(false);
+            };
+
+            recognition.onend = () => {
+                setIsRecording(false);
+                validateRequiredFields();
+            };
+
+            setRecognition(recognition);
+        }
+    }, [selectedLanguage]);
 
     // Pre-fill user data if available
     const [userData] = useState({
@@ -44,6 +81,39 @@ const SubmitGrievance = () => {
                 ...prev,
                 [name]: ''
             }));
+        }
+    };
+
+    const toggleRecording = () => {
+        if (!recognition) {
+            toast.error('Voice input is not supported in your browser');
+            return;
+        }
+
+        if (isRecording) {
+            recognition.stop();
+        } else {
+            recognition.start();
+            setIsRecording(true);
+        }
+    };
+
+    const validateRequiredFields = () => {
+        const missingFields = [];
+        if (!formData.title.trim()) missingFields.push('Title');
+        if (!formData.district.trim()) missingFields.push('District');
+        if (!formData.taluk.trim()) missingFields.push('Taluk');
+        if (!formData.division.trim()) missingFields.push('Division');
+        if (!formData.description.trim()) missingFields.push('Description');
+
+        if (missingFields.length > 0) {
+            toast.error('Some required fields are missing or unclear. Please complete them manually.');
+            missingFields.forEach(field => {
+                setErrors(prev => ({
+                    ...prev,
+                    [field.toLowerCase()]: `${field} is required`
+                }));
+            });
         }
     };
 
@@ -354,15 +424,43 @@ const SubmitGrievance = () => {
 
                                             <div className="mb-3">
                                                 <label className="form-label">Description*</label>
-                                                <textarea
-                                                    className={`form-control ${errors.description ? 'is-invalid' : ''}`}
-                                                    name="description"
-                                                    value={formData.description}
-                                                    onChange={handleChange}
-                                                    rows="5"
-                                                    placeholder="Provide detailed description of your grievance"
-                                                ></textarea>
+                                                <div className="input-group">
+                                                    <textarea
+                                                        className={`form-control ${errors.description ? 'is-invalid' : ''}`}
+                                                        name="description"
+                                                        value={formData.description}
+                                                        onChange={handleChange}
+                                                        rows="5"
+                                                        placeholder="Provide detailed description of your grievance"
+                                                    ></textarea>
+                                                    <div className="input-group-append">
+                                                        <div className="input-group-text d-flex flex-column align-items-center">
+                                                            <select
+                                                                className="form-select form-select-sm mb-2"
+                                                                value={selectedLanguage}
+                                                                onChange={(e) => setSelectedLanguage(e.target.value)}
+                                                                disabled={isRecording}
+                                                            >
+                                                                <option value="en-IN">English</option>
+                                                                <option value="ta-IN">Tamil</option>
+                                                            </select>
+                                                            <button
+                                                                type="button"
+                                                                className={`btn btn-sm ${isRecording ? 'btn-danger' : 'btn-primary'}`}
+                                                                onClick={toggleRecording}
+                                                                title={isRecording ? 'Stop Recording' : 'Start Recording'}
+                                                            >
+                                                                {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                                 {errors.description && <div className="invalid-feedback">{errors.description}</div>}
+                                                {isRecording && (
+                                                    <div className="text-primary mt-1">
+                                                        <small>Recording... Speak clearly into your microphone</small>
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="mb-3">

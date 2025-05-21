@@ -698,7 +698,7 @@ export const updateGrievanceStatus = async (req, res) => {
         grievance.statusHistory.push({
             status,
             updatedBy: officialId,
-            updatedByType: 'Official',
+            updatedByType: 'official',
             comment
         });
 
