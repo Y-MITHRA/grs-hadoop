@@ -20,7 +20,13 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Constants for validation 
 const VALID_DEPARTMENTS = ['Water', 'RTO', 'Electricity'];
-const VALID_DIVISIONS = ['North', 'South', 'East', 'West', 'Central'];
+const VALID_DIVISIONS = [
+  'Chennai North', 'Chennai South', 'Chennai Central',
+  'Coimbatore North', 'Coimbatore South',
+  'Madurai Central', 'Madurai South',
+  'Salem East', 'Salem West',
+  'Tiruchirappalli Central', 'Tiruchirappalli South'
+];
 const VALID_DISTRICTS = ['Bengaluru Urban', 'Bengaluru Rural', 'Mysuru', 'Belagavi', 'Kalaburagi', 'Mangaluru', 'Hubballi', 'Dharwad'];
 const VALID_TALUKS = ['Bengaluru East', 'Bengaluru West', 'Bengaluru South', 'Bengaluru North', 'Nelamangala', 'Doddaballapura', 'Devanahalli', 'Hosakote', 'Anekal', 'Central Mysuru', 'North Mysuru', 'South Mysuru'];
 const VALID_STATUSES = ['Pending', 'In Progress', 'Resolved', 'Declined'];
@@ -213,12 +219,18 @@ Status types:
 - Resolved: Completed cases
 - Escalated: Cases requiring higher attention
 
+Time-based queries:
+- If the query asks for cases from a specific period (e.g., "last month", "this week", "today", "last year", "this year"), extract a "timeframe" parameter.
+- Valid timeframe values: "today", "this_week", "last_week", "this_month", "last_month", "this_year", "last_year".
+- Example: "Show cases from last month" -> intent: "case_query", params: { timeframe: "last_month" }
+- Example: "How many RTO cases today?" -> intent: "count_query", params: { countTarget: "cases", department: "RTO", timeframe: "today" }
+
 Intent Classification:
-- case_query: When asking about grievances/cases itself (not resources)
+- case_query: When asking about grievances/cases itself (not resources). Can include timeframe.
 - resource_query: When asking about resources/requirements for cases
 - manpower_query: When asking specifically about manpower needs
-- count_query: When asking for counts or totals of cases, resources, or officials
-- stats_query: When asking for statistics, summaries, or aggregated information
+- count_query: When asking for counts or totals of cases, resources, or officials. Can include timeframe.
+- stats_query: When asking for statistics, summaries, or aggregated information. Can include timeframe.
 - official_info: When asking about officials/employees/staff
 - case_lookup: When looking up a specific case by ID
 
@@ -227,11 +239,12 @@ For count_query, extract:
 2. Location filters (department, division, district, taluk)
 3. Status filters if specified
 4. Priority filters if specified
+5. Timeframe if specified (e.g., timeframe: "today")
 
 For stats_query, extract:
 1. Type of statistics (funds, manpower, resource allocation)
 2. Location filters (department, division, district, taluk)
-3. Time period if specified
+3. Time period if specified (e.g., timeframe: "last_month")
 4. Any grouping parameters (by department, by status, etc)
 
 For official_info, extract:
@@ -248,7 +261,7 @@ For case queries, extract:
 1. Location details (department, division, district, taluk)
 2. Priority level if specified
 3. Status if specified
-4. Any specific conditions or filters
+4. Timeframe if specified (e.g., timeframe: "this_week")
 
 For resource and manpower queries, extract:
 1. Location details (department, division, district, taluk)
@@ -584,23 +597,30 @@ function parseAndValidateAnalysis(analysisText) {
 
         // Normalize and validate parameters
         if (analysis.params.department) {
-            const departmentInput = analysis.params.department.charAt(0).toUpperCase() +
-                analysis.params.department.slice(1).toLowerCase();
-
-            if (VALID_DEPARTMENTS.includes(departmentInput)) {
-                analysis.params.department = departmentInput;
+            // Find a case-insensitive match in VALID_DEPARTMENTS
+            const matchedDepartment = VALID_DEPARTMENTS.find(
+                d => d.toLowerCase() === analysis.params.department.toLowerCase()
+            );
+            if (matchedDepartment) {
+                analysis.params.department = matchedDepartment;
             } else {
                 console.warn(`Invalid department: ${analysis.params.department}`);
                 delete analysis.params.department;
             }
         }
 
+        // Division validation (case-insensitive, trimmed, no duplicate declaration)
         if (analysis.params.division) {
-            const divisionInput = analysis.params.division.charAt(0).toUpperCase() +
-                analysis.params.division.slice(1).toLowerCase();
-
-            if (VALID_DIVISIONS.includes(divisionInput)) {
-                analysis.params.division = divisionInput;
+            const divisionInput = analysis.params.division.trim();
+            console.log('DEBUG: divisionInput:', JSON.stringify(divisionInput), 'length:', divisionInput.length);
+            VALID_DIVISIONS.forEach(d => {
+                console.log('DEBUG: VALID_DIVISION:', JSON.stringify(d), 'length:', d.length);
+            });
+            const matchedDivision = VALID_DIVISIONS.find(
+                d => d.trim().toLowerCase() === divisionInput.toLowerCase()
+            );
+            if (matchedDivision) {
+                analysis.params.division = matchedDivision;
             } else {
                 console.warn(`Invalid division: ${analysis.params.division}`);
                 delete analysis.params.division;
@@ -635,16 +655,21 @@ function parseAndValidateAnalysis(analysisText) {
             }
         }
 
-        // Normalize status and priority fields
-        if (analysis.params.status) {
-            const statusInput = analysis.params.status.charAt(0).toUpperCase() +
-                analysis.params.status.slice(1).toLowerCase();
-
-            if (VALID_STATUSES.includes(statusInput)) {
-                analysis.params.status = statusInput;
-            } else {
-                console.warn(`Invalid status: ${analysis.params.status}`);
-                delete analysis.params.status;
+        // If status is missing but searchValue contains a known status, extract it
+        if (!analysis.params.status && analysis.params.searchValue) {
+            const statusKeywords = [
+                'pending', 'pending case', 'pending cases',
+                'in progress', 'in-progress', 'progress', 'inprogress',
+                'assigned', 'assign', 'assignment',
+                'resolved', 'resolve', 'solved', 'closed',
+                'declined', 'decline',
+                'escalated', 'escalate'
+            ];
+            const found = statusKeywords.find(keyword =>
+                analysis.params.searchValue.toLowerCase().includes(keyword)
+            );
+            if (found) {
+                analysis.params.status = found;
             }
         }
 
@@ -673,6 +698,110 @@ function parseAndValidateAnalysis(analysisText) {
             if (idMatch) {
                 analysis.params.caseId = idMatch[1];
             }
+        }
+
+        // Fallback: Infer district and division from searchValue if missing
+        if (analysis.params.searchValue) {
+            const search = analysis.params.searchValue.toLowerCase();
+            // Try to extract district
+            if (!analysis.params.district) {
+                for (const district of VALID_DISTRICTS) {
+                    if (search.includes(district.toLowerCase())) {
+                        analysis.params.district = district;
+                        break;
+                    }
+                }
+            }
+            // Try to extract division
+            if (!analysis.params.division) {
+                for (const division of VALID_DIVISIONS) {
+                    // Match 'South division', 'Central division', 'Chennai Central', etc.
+                    const divisionPattern = new RegExp(`\\b${division.toLowerCase()}( division)?\\b`);
+                    if (divisionPattern.test(search)) {
+                        analysis.params.division = division;
+                        break;
+                    }
+                }
+                // Also handle patterns like 'Chennai Central', 'Chennai South', etc.
+                if (!analysis.params.division && analysis.params.district) {
+                    for (const division of VALID_DIVISIONS) {
+                        const combined = `${analysis.params.district} ${division}`.toLowerCase();
+                        if (search.includes(combined)) {
+                            analysis.params.division = division;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        // Debug: Print VALID_DIVISIONS
+        console.log('DEBUG: VALID_DIVISIONS:', VALID_DIVISIONS);
+        // Debug: Before combining
+        console.log('DEBUG: Before combining - params.district:', analysis.params.district, 'params.division:', analysis.params.division);
+        // Combine district and division if both are present and match a known division (always run)
+        if (analysis.params.district && analysis.params.division) {
+            const combinedDivision = `${analysis.params.district} ${analysis.params.division}`;
+            console.log('DEBUG: Trying combinedDivision:', combinedDivision);
+            if (VALID_DIVISIONS.includes(combinedDivision)) {
+                analysis.params.division = combinedDivision;
+                delete analysis.params.district;
+                console.log('DEBUG: Combination successful! New params.division:', analysis.params.division);
+            }
+        }
+        // Debug: After combining
+        console.log('DEBUG: After combining - params.district:', analysis.params.district, 'params.division:', analysis.params.division);
+
+        // Fallback: Infer pending duration from searchValue if missing
+        if (!analysis.params.pendingDuration && analysis.params.searchValue) {
+            const match = analysis.params.searchValue.match(/pending (?:for|more than|over) (\d+) days?/i);
+            if (match) {
+                analysis.params.pendingDuration = parseInt(match[1], 10);
+            }
+        }
+        // If pendingDuration is set, add createdAt filter
+        if (analysis.params.status && analysis.params.status.toLowerCase() === 'pending' && analysis.params.pendingDuration) {
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - analysis.params.pendingDuration);
+            analysis.params.dateRange = { end: cutoff };
+        }
+
+        // Fallback: Detect group/count queries
+        let groupBy = null;
+        if (analysis.params.searchValue) {
+            if (/count cases by department|group cases by department/i.test(analysis.params.searchValue)) {
+                groupBy = 'department';
+            } else if (/group cases by department and district/i.test(analysis.params.searchValue)) {
+                groupBy = ['department', 'district'];
+            } else if (/count grievances by priority/i.test(analysis.params.searchValue)) {
+                groupBy = 'priority';
+            }
+        }
+
+        // If groupBy is set, build aggregation pipeline
+        if (groupBy) {
+            let match = { ...analysis.params };
+            // Remove group fields from match if present
+            if (Array.isArray(groupBy)) {
+                groupBy.forEach(field => delete match[field]);
+            } else {
+                delete match[groupBy];
+            }
+            // Build group object
+            let groupObj = {};
+            if (Array.isArray(groupBy)) {
+                groupBy.forEach(field => {
+                    groupObj[field] = `$${field}`;
+                });
+            } else {
+                groupObj[groupBy] = `$${groupBy}`;
+            }
+            const pipeline = [
+                { $match: match },
+                { $group: { _id: groupObj, count: { $sum: 1 } } },
+                { $sort: { count: -1 } }
+            ];
+            analysis.params.aggregation = pipeline;
+            analysis.params.groupBy = groupBy;
         }
 
         return analysis;
@@ -711,367 +840,414 @@ async function saveInteraction(userId, query, response) {
     ]);
 }
 
+// Helper function to calculate date ranges
+function calculateDateRange(timeframe) {
+    const now = new Date();
+    let startDate, endDate;
+
+    // Set hours, minutes, seconds, and ms to 0 for start of day
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+
+    // Set hours, minutes, seconds, and ms to end of day
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    switch (timeframe) {
+        case 'today':
+            startDate = new Date(todayStart);
+            endDate = new Date(todayEnd);
+            break;
+        case 'this_week':
+            startDate = new Date(todayStart);
+            // Assuming week starts on Monday (0 for Sunday, 1 for Monday, etc.)
+            // Go back to the previous Monday or stay if today is Monday
+            const dayOfWeek = startDate.getDay(); // 0 (Sun) - 6 (Sat)
+            const diffToMonday = (dayOfWeek === 0) ? 6 : (dayOfWeek - 1); // if Sunday, go back 6 days, else dayOfWeek - 1
+            startDate.setDate(startDate.getDate() - diffToMonday);
+            
+            endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + 6); // Monday + 6 days = Sunday
+            endDate.setHours(23, 59, 59, 999); // End of Sunday
+            break;
+        case 'last_week':
+            startDate = new Date(todayStart);
+            // Go to the Monday of last week
+            const dayOfWeekLast = startDate.getDay();
+            const diffToLastMonday = (dayOfWeekLast === 0) ? (6 + 7) : (dayOfWeekLast - 1 + 7);
+            startDate.setDate(startDate.getDate() - diffToLastMonday);
+
+            endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + 6); // Monday + 6 days = Sunday of last week
+            endDate.setHours(23, 59, 59, 999);
+            break;
+        case 'this_month':
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0); // 0th day of next month is last day of current month
+            endDate.setHours(23, 59, 59, 999);
+            break;
+        case 'last_month':
+            startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(now.getFullYear(), now.getMonth(), 0); // 0th day of current month is last day of previous month
+            endDate.setHours(23, 59, 59, 999);
+            break;
+        case 'this_year':
+            startDate = new Date(now.getFullYear(), 0, 1); // January is month 0
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(now.getFullYear(), 11, 31); // December is month 11
+            endDate.setHours(23, 59, 59, 999);
+            break;
+        case 'last_year':
+            startDate = new Date(now.getFullYear() - 1, 0, 1);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(now.getFullYear() - 1, 11, 31);
+            endDate.setHours(23, 59, 59, 999);
+            break;
+        default:
+            console.warn(`Unknown timeframe: ${timeframe}`);
+            return null;
+    }
+    return { startDate, endDate };
+}
+
+// Helper function to get a display string for a timeframe
+function getDisplayTimeframe(timeframe) {
+    if (!timeframe) return "";
+
+    const now = new Date();
+    let monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    switch (timeframe) {
+        case 'today':
+            return `(Today, ${monthNames[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()})`;
+        case 'this_week':
+            return "(This Week)"; // Could be enhanced to show date range
+        case 'last_week':
+            return "(Last Week)"; // Could be enhanced to show date range
+        case 'this_month':
+            return `(${monthNames[now.getMonth()]} ${now.getFullYear()})`;
+        case 'last_month':
+            const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            return `(${monthNames[prevMonthDate.getMonth()]} ${prevMonthDate.getFullYear()})`;
+        case 'this_year':
+            return `(${now.getFullYear()})`;
+        case 'last_year':
+            return `(${(now.getFullYear() - 1)})`;
+        default:
+            // Capitalize first letter of each word and replace underscore with space
+            const formattedTimeframe = timeframe.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+            return `(${formattedTimeframe})`;
+    }
+}
+
 // Function to build MongoDB query based on intent and parameters
 async function buildMongoQuery(analysis) {
     const { intent, params } = analysis;
     let query = {};
 
-    // Normalize parameters (case-insensitive)
-    const department = params.department?.toLowerCase();
-    const division = params.division?.toLowerCase();
-    const district = params.district?.toLowerCase();
-    const taluk = params.taluk?.toLowerCase();
-    const priority = params.priority?.toLowerCase();
-    const status = params.status?.toLowerCase();
-    const caseId = params.caseId?.trim();
-    const countTarget = params.countTarget?.toLowerCase();
-
-    // Build location filters (reused across multiple query types)
-    const locationFilters = {};
-    if (department) {
-        locationFilters.department = { $regex: `^${department}$`, $options: 'i' };
-    }
-    if (division) {
-        locationFilters.division = { $regex: `^${division}$`, $options: 'i' };
-    }
-    if (district) {
-        locationFilters.district = { $regex: `^${district}$`, $options: 'i' };
-    }
-    if (taluk) {
-        locationFilters.taluk = { $regex: `^${taluk}$`, $options: 'i' };
-    }
-
-    // Build status and priority filters (reused across multiple query types)
-    const conditionFilters = {};
-    if (priority) {
-        conditionFilters.priority = { $regex: `^${priority}$`, $options: 'i' };
-    }
-    if (status) {
-        conditionFilters.status = { $regex: `^${status}$`, $options: 'i' };
-    }
-
-    // Handle different types of queries
-    switch (intent) {
-        case 'count_query':
-            // For count queries, we just need the right filters based on what's being counted
-            query = { ...locationFilters, ...conditionFilters };
-
-            // Apply specific filters based on what's being counted
-            if (countTarget === 'resources' || countTarget === 'funds') {
-                query['resourceManagement.fundsRequired'] = { $exists: true };
-            } else if (countTarget === 'manpower') {
-                query['resourceManagement.manpowerNeeded'] = { $exists: true };
-            }
-
-            console.log('Count Query:', JSON.stringify(query, null, 2));
-
-            // Count queries use the right collection based on what's being counted
-            if (countTarget === 'officials' || countTarget === 'staff' || countTarget === 'employees') {
-                return { collection: 'officials', query, isCount: true, countTarget };
-            }
-
-            return { collection: 'grievances', query, isCount: true, countTarget };
-
-        case 'stats_query':
-            // Similar to count query but with aggregation flags
-            query = { ...locationFilters, ...conditionFilters };
-
-            console.log('Stats Query:', JSON.stringify(query, null, 2));
-            return { collection: 'grievances', query, isStats: true, statsTarget: params.searchValue };
-
-        case 'official_info':
-            query = {};
-
-            // Convert department filters for officials collection
-            if (department) {
-                query.department = { $regex: `^${department}$`, $options: 'i' };
-            }
-
-            // Handle other location filters that might apply to officials
-            if (division) {
-                query.jurisdiction = { $regex: division, $options: 'i' };
-            }
-            if (district) {
-                query.jurisdiction = query.jurisdiction || {};
-                query.jurisdiction.$regex = district;
-                query.jurisdiction.$options = 'i';
-            }
-            if (taluk) {
-                query.jurisdiction = query.jurisdiction || {};
-                query.jurisdiction.$regex = taluk;
-                query.jurisdiction.$options = 'i';
-            }
-
-            // Handle role/designation filters
-            if (params.searchValue) {
-                query.designation = { $regex: params.searchValue, $options: 'i' };
-            }
-
-            console.log('Official Info Query:', JSON.stringify(query, null, 2));
-            return { collection: 'officials', query };
-
-        case 'case_lookup':
-            // For case lookup by ID
-            if (caseId) {
-                // Try to match either the _id (if it's a valid ObjectId) or the petitionId
-                try {
-                    const objectId = new mongoose.Types.ObjectId(caseId);
-                    query = { $or: [{ _id: objectId }, { petitionId: caseId }] };
-                } catch (e) {
-                    // If not a valid ObjectId, just search by petitionId
-                    query = { petitionId: caseId };
+    // Fallback: Infer timeframe or specific date from searchValue if missing
+    if (!params.timeframe && params.searchValue) {
+        let search = params.searchValue.toLowerCase().replace(/['']/g, ''); // Remove apostrophes
+        if (/\btoday\b/.test(search)) params.timeframe = 'today';
+        else if (/\bthis week\b/.test(search)) params.timeframe = 'this_week';
+        else if (/\blast week\b/.test(search)) params.timeframe = 'last_week';
+        else if (/\bthis month\b/.test(search)) params.timeframe = 'this_month';
+        else if (/\blast month\b/.test(search)) params.timeframe = 'last_month';
+        else if (/\bthis year\b/.test(search)) params.timeframe = 'this_year';
+        else if (/\blast year\b/.test(search)) params.timeframe = 'last_year';
+        else {
+            // Try to match 'on dd/mm/yyyy', 'on d/m/yyyy', or 'on yyyy-mm-dd'
+            let dateMatch = search.match(/on\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+            if (dateMatch) {
+                const day = parseInt(dateMatch[1], 10);
+                const month = parseInt(dateMatch[2], 10) - 1; // JS months are 0-based
+                const year = parseInt(dateMatch[3], 10);
+                const start = new Date(year, month, day, 0, 0, 0, 0);
+                const end = new Date(year, month, day, 23, 59, 59, 999);
+                params.dateRange = { start, end };
+            } else {
+                // Try to match 'on yyyy-mm-dd'
+                dateMatch = search.match(/on\s*(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+                if (dateMatch) {
+                    const year = parseInt(dateMatch[1], 10);
+                    const month = parseInt(dateMatch[2], 10) - 1;
+                    const day = parseInt(dateMatch[3], 10);
+                    const start = new Date(year, month, day, 0, 0, 0, 0);
+                    const end = new Date(year, month, day, 23, 59, 59, 999);
+                    params.dateRange = { start, end };
                 }
-            } else if (params.searchValue) {
-                // If no direct ID but some search value, try to match against petitionId
-                query = { petitionId: { $regex: params.searchValue, $options: 'i' } };
             }
+        }
+    }
+    // Flexible location-based filtering using regex for division and district
+    if (params.division) {
+        // If the division is more than one word, extract the most specific part (e.g., 'South' from 'Chennai South')
+        const divisionParts = params.division.split(/\s+/);
+        const mainDivision = divisionParts[divisionParts.length - 1];
+        // Match any division containing the value, case-insensitive
+        query.division = { $regex: mainDivision, $options: 'i' };
+    }
+    if (params.district) {
+        query.district = { $regex: params.district, $options: 'i' };
+    }
+    // Case-insensitive matching for department, priority, and status
+    if (params.department) {
+        query.department = { $regex: `^${params.department}$`, $options: 'i' };
+    }
+    if (params.priority) {
+        query.priority = { $regex: `^${params.priority}$`, $options: 'i' };
+    }
+    if (params.status) {
+        query.status = { $regex: `^${params.status}$`, $options: 'i' };
+    }
+    // If pendingDuration is set, add createdAt filter
+    if (params.status && params.status.toLowerCase() === 'pending' && params.pendingDuration) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - params.pendingDuration);
+        query.createdAt = { ...(query.createdAt || {}), $lte: cutoff };
+    }
+    // Debug: Print VALID_DIVISIONS
+    console.log('DEBUG: VALID_DIVISIONS:', VALID_DIVISIONS);
+    // Debug: Before combining
+    console.log('DEBUG: Before combining - params.district:', params.district, 'params.division:', params.division);
+    // Combine district and division if both are present and match a known division (always run)
+    if (params.district && params.division) {
+        const combinedDivision = `${params.district} ${params.division}`;
+        console.log('DEBUG: Trying combinedDivision:', combinedDivision);
+        if (VALID_DIVISIONS.includes(combinedDivision)) {
+            params.division = combinedDivision;
+            delete params.district;
+            console.log('DEBUG: Combination successful! New params.division:', params.division);
+        }
+    }
+    // Debug: After combining
+    console.log('DEBUG: After combining - params.district:', params.district, 'params.division:', params.division);
+    // Debug: Log params after fallback
+    console.log('DEBUG: After fallback - params.timeframe:', params.timeframe);
+    console.log('DEBUG: After fallback - params.dateRange:', params.dateRange);
 
-            console.log('Case Lookup Query:', JSON.stringify(query, null, 2));
-            return { collection: 'grievances', query };
-
+    switch (intent) {
         case 'case_query':
-            // For case queries, we just apply the filters without requiring resource management
-            query = { ...locationFilters, ...conditionFilters };
-
-            console.log('Case Query:', JSON.stringify(query, null, 2));
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
+            if (params.timeframe) {
+                const dateRange = calculateDateRange(params.timeframe);
+                if (dateRange) {
+                    query.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+                }
+            }
             break;
-
         case 'resource_query':
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
+            break;
         case 'manpower_query':
-            // Base query for resources
-            query = {
-                'resourceManagement': { $exists: true },
-                ...locationFilters,
-                ...conditionFilters
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            break;
+        case 'count_query':
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
+            if (params.timeframe) {
+                const dateRange = calculateDateRange(params.timeframe);
+                if (dateRange) {
+                    query.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+                }
+            }
+            return {
+                collection: 'grievances',
+                query,
+                isCount: true,
+                countTarget: params.countTarget
             };
-
-            // Add specific resource type conditions
-            if (intent === 'manpower_query' || params.searchValue?.toLowerCase().includes('manpower')) {
-                query['resourceManagement.manpowerNeeded'] = { $exists: true, $gt: 0 };
+        case 'stats_query':
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
+            if (params.timeframe) {
+                const dateRange = calculateDateRange(params.timeframe);
+                if (dateRange) {
+                    query.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+                }
             }
-            if (params.searchValue?.toLowerCase().includes('fund')) {
-                query['resourceManagement.fundsRequired'] = { $exists: true, $gt: 0 };
+            return {
+                collection: 'grievances',
+                query,
+                isStats: true
+            };
+        case 'official_info':
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.designation) query.designation = params.designation;
+            return {
+                collection: 'officials',
+                query
+            };
+        case 'case_lookup':
+            if (params.caseId) query._id = params.caseId;
+            return {
+                collection: 'grievances',
+                query
+            };
+        default:
+            console.warn(`Unexpected intent type: ${intent}. Defaulting to case_query.`);
+            if (params.department && !query.department) query.department = params.department;
+            if (params.division && !query.division) query.division = params.division;
+            if (params.district && !query.district) query.district = params.district;
+            if (params.taluk && !query.taluk) query.taluk = params.taluk;
+            if (params.priority && !query.priority) query.priority = params.priority;
+            if (params.status && !query.status) query.status = params.status;
+            if (params.timeframe) {
+                const dateRange = calculateDateRange(params.timeframe);
+                if (dateRange) {
+                    query.createdAt = { $gte: dateRange.startDate, $lte: dateRange.endDate };
+                }
             }
-
-            console.log('Resource Query:', JSON.stringify(query, null, 2));
             break;
-
-        case 'grievance_query':
-            if (params.searchType === 'id') {
-                query.petitionId = params.searchValue;
-            } else if (params.searchType === 'title') {
-                query.title = { $regex: params.searchValue, $options: 'i' };
-            }
-            break;
-
-        case 'official_query':
-            if (params.searchType === 'id') {
-                return { collection: 'officials', query: { employeeId: params.searchValue } };
-            } else if (params.designation) {
-                return { collection: 'officials', query: { designation: params.designation } };
-            }
-            break;
-
-        case 'official_stats':
-        case 'location_stats':
-        case 'department_stats':
-            return { collection: 'grievances', query: {} };
     }
 
-    // Handle date range
-    if (params.dateRange && (params.dateRange.start || params.dateRange.end)) {
-        query.createdAt = {};
-        if (params.dateRange.start) query.createdAt.$gte = new Date(params.dateRange.start);
-        if (params.dateRange.end) query.createdAt.$lte = new Date(params.dateRange.end);
+    // After query is built for case_query, always apply date filter if params.timeframe or params.dateRange is set
+    if ((intent === 'case_query' || intent === 'grievance_query')) {
+        if (params.timeframe) {
+            const dateRange = calculateDateRange(params.timeframe);
+            if (dateRange && dateRange.startDate && dateRange.endDate) {
+                query.createdAt = {
+                    $gte: dateRange.startDate,
+                    $lte: dateRange.endDate
+                };
+            }
+        } else if (params.dateRange) {
+            if (params.dateRange.start && params.dateRange.end) {
+                query.createdAt = {
+                    $gte: params.dateRange.start,
+                    $lte: params.dateRange.end
+                };
+            } else if (params.dateRange.end) {
+                query.createdAt = { $lte: params.dateRange.end };
+            } else if (params.dateRange.start) {
+                query.createdAt = { $gte: params.dateRange.start };
+            }
+        }
     }
 
-    return { collection: 'grievances', query };
+    // Debug: Log final query before return
+    console.log('DEBUG: Final query before return:', JSON.stringify(query, null, 2));
+
+    return {
+        collection: 'grievances',
+        query
+    };
 }
 
-// Function to generate response based on results and intent
+// Function to generate response based on results and analysis
 async function generateResponse(results, query, analysis) {
-    try {
-        const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const { intent, params } = analysis;
 
-        switch (analysis.intent) {
-            case 'grievance_query':
-            case 'case_query':
-                return formatGrievanceResponse(results);
-
-            case 'official_query':
-            case 'official_info':
-                return formatOfficialResponse(results);
-
-            case 'count_query':
-                return formatCountResponse(results, analysis);
-
-            case 'stats_query':
+    switch (intent) {
+        case 'case_query':
+            if (params.timeframe) {
                 return formatStatsResponse(results, analysis);
-
-            case 'case_lookup':
-                return formatCaseLookupResponse(results);
-
-            case 'resource_query':
-            case 'manpower_query':
-                return formatResourceResponse(results, analysis.intent, analysis);
-
-            case 'official_stats':
-            case 'location_stats':
-            case 'department_stats':
-                return formatStatsResponse(results, analysis);
-
-            default:
-                // Use Gemini for natural language response
-                const responsePrompt = `Generate a response for:
-                Query: "${query}"
-                Intent: ${analysis.intent}
-                Results: ${JSON.stringify(results)}
-                
-                Format the response in a clear, natural way.`;
-
-                const result = await geminiModel.generateContent(responsePrompt);
-                return result.response.text();
-        }
-    } catch (error) {
-        console.error('Error generating response:', error);
-        return generateBasicResponse(results, query, analysis);
+            } else {
+                return formatGrievanceResponse(results, query, analysis);
+            }
+        case 'resource_query':
+            return formatResourceResponse(results, query, analysis);
+        case 'manpower_query':
+            return formatManpowerResponse(results, query, analysis);
+        case 'count_query':
+            return formatCountResponse(results, query, analysis);
+        case 'stats_query':
+            return formatStatsResponse(results, analysis);
+        case 'official_info':
+            return formatOfficialResponse(results, query, analysis);
+        case 'case_lookup':
+            return formatCaseLookupResponse(results, query, analysis);
+        default:
+            console.warn(`Unexpected intent type: ${intent}. Defaulting to case_query.`);
+            return formatGrievanceResponse(results, query, analysis);
     }
-}
-
-// Helper function to format count response
-function formatCountResponse(results, analysis) {
-    try {
-        const { params } = analysis;
-        const countTarget = params.countTarget?.toLowerCase() || 'cases';
-        const department = params.department || 'all departments';
-        const location = params.district ?
-            `${params.district}${params.division ? ` - ${params.division} Division` : ''}` :
-            (params.taluk ? params.taluk : 'all locations');
-
-        // If this is an isCount query from MongoDB
-        if (results && results.isCount) {
-            return `Total ${countTarget} in ${department} (${location}): ${results.count || 0}`;
-        }
-
-        // If results is null or undefined
-        if (!results || !Array.isArray(results)) {
-            return `No ${countTarget} found matching your criteria.`;
-        }
-
-        // For regular result sets that need to be counted
-        const count = results.length;
-
-        if (count === 0) {
-            return `No ${countTarget} found matching your criteria.`;
-        }
-
-        let response = `Found ${count} ${countTarget} in ${department} (${location})`;
-
-        // Add status info if relevant
-        if (params.status) {
-            response += ` with status "${params.status}"`;
-        }
-
-        // Add priority info if relevant
-        if (params.priority) {
-            response += ` and priority "${params.priority}"`;
-        }
-
-        return response;
-    } catch (error) {
-        console.error('Error formatting count response:', error);
-        return `Total count: ${results && results.isCount ? results.count : (Array.isArray(results) ? results.length : 0)}`;
-    }
-}
-
-// Helper function for case lookup
-function formatCaseLookupResponse(results) {
-    if (results.length === 0) {
-        return "No case found with that ID. Please verify the case ID and try again.";
-    }
-
-    if (results.length > 1) {
-        return "Multiple cases matched your query. Please provide a more specific case ID.";
-    }
-
-    const grievance = results[0];
-    let response = `Case Details for Petition ID: ${grievance.petitionId}\n\n`;
-    response += `Title: ${grievance.title}\n`;
-    response += `Department: ${grievance.department}\n`;
-    response += `Location: ${grievance.district || ''} ${grievance.division ? '- ' + grievance.division + ' Division' : ''}\n`;
-    response += `Status: ${grievance.status}, Priority: ${grievance.priority}\n\n`;
-
-    if (grievance.description) {
-        response += `Description: ${grievance.description}\n\n`;
-    }
-
-    if (grievance.assignedTo) {
-        response += `Assigned To: ${typeof grievance.assignedTo === 'object' ?
-            `${grievance.assignedTo.firstName || ''} ${grievance.assignedTo.lastName || ''}`.trim() :
-            'Official ID: ' + grievance.assignedTo}\n`;
-    }
-
-    if (grievance.resourceManagement) {
-        response += `\nResource Requirements:\n`;
-        response += `- Funds Required: ₹${grievance.resourceManagement.fundsRequired.toLocaleString()}\n`;
-        response += `- Manpower Needed: ${grievance.resourceManagement.manpowerNeeded} personnel\n`;
-        response += `- Requirements: ${grievance.resourceManagement.requirementsNeeded}\n`;
-    }
-
-    if (grievance.createdAt) {
-        response += `\nCreated: ${new Date(grievance.createdAt).toLocaleDateString()}\n`;
-    }
-
-    if (grievance.updatedAt) {
-        response += `Last Updated: ${new Date(grievance.updatedAt).toLocaleDateString()}\n`;
-    }
-
-    return response;
 }
 
 // Helper function to format grievance response
-function formatGrievanceResponse(results) {
-    if (results.length === 0) return "No grievances found matching your criteria.";
+function formatGrievanceResponse(results, query, analysis) {
+    if (results.length === 0) {
+        return "No cases found matching the criteria.";
+    }
 
-    let response = "";
-    results.forEach((g, index) => {
-        response += `${index + 1}. Petition ID: ${g.petitionId}\n`;
-        response += `   Title: ${g.title}\n`;
-        response += `   Department: ${g.department}\n`;
-        response += `   Location: ${g.district} - ${g.division} Division\n`;
-        response += `   Status: ${g.status}, Priority: ${g.priority}\n`;
-        if (g.resourceManagement) {
-            response += `   Resource Requirements:\n`;
-            response += `   - Funds Required: ₹${g.resourceManagement.fundsRequired.toLocaleString()}\n`;
-            response += `   - Manpower Needed: ${g.resourceManagement.manpowerNeeded} personnel\n`;
-            response += `   - Requirements: ${g.resourceManagement.requirementsNeeded}\n`;
-        }
-        response += '\n';
+    let response = `Found ${results.length} cases matching the criteria:\n`;
+    results.forEach((grievance, index) => {
+        response += `\n${index + 1}. ${grievance.title} - ${grievance.status} (${grievance.department}, ${grievance.district})\n`;
     });
 
     return response;
 }
 
-// Helper function to format official response
-function formatOfficialResponse(results) {
-    if (results.length === 0) return "No officials found matching your criteria.";
-
-    let response = "";
-
-    // If this is just a count query about officials
-    if (typeof results.count !== 'undefined') {
-        return `Total officials found: ${results.count}`;
+// Helper function to format resource response
+function formatResourceResponse(results, query, analysis) {
+    if (results.length === 0) {
+        return "No resource requirements found matching the criteria.";
     }
 
-    response = `Found ${results.length} officials:\n\n`;
-    results.forEach((o, index) => {
-        response += `${index + 1}. ${o.designation} ${o.firstName} ${o.lastName}\n`;
-        response += `   Employee ID: ${o.employeeId}\n`;
-        response += `   Department: ${o.department}\n`;
-        response += `   Contact: ${o.phone}, ${o.email}\n`;
-        response += `   Office: ${o.officeAddress}, ${o.city}\n`;
-        response += '\n';
+    let response = `Resource requirements for ${results.length} cases matching the criteria:\n`;
+    results.forEach((grievance, index) => {
+        const { resourceManagement } = grievance;
+        response += `\n${index + 1}. ${grievance.title} - ${grievance.status} (${grievance.department}, ${grievance.district})\n`;
+        response += `   Funds required: ${resourceManagement.fundsRequired}\n`;
+        response += `   Manpower needed: ${resourceManagement.manpowerNeeded}\n`;
     });
+
+    return response;
+}
+
+// Helper function to format manpower response
+function formatManpowerResponse(results, query, analysis) {
+    if (results.length === 0) {
+        return "No manpower needs found matching the criteria.";
+    }
+
+    let response = `Manpower needs for ${results.length} cases matching the criteria:\n`;
+    results.forEach((grievance, index) => {
+        const { resourceManagement } = grievance;
+        response += `\n${index + 1}. ${grievance.title} - ${grievance.status} (${grievance.department}, ${grievance.district})\n`;
+        response += `   Manpower needed: ${resourceManagement.manpowerNeeded}\n`;
+    });
+
+    return response;
+}
+
+// Helper function to format count response
+function formatCountResponse(results, query, analysis) {
+    const { count, countTarget, isCount } = results;
+    if (!isCount) {
+        console.error('formatCountResponse called with non-count results');
+        return "Error: Invalid count response";
+    }
+
+    let response = `Total ${countTarget} in all departments (all locations): ${count}\n`;
+    if (analysis.params.timeframe) {
+        response += `For the period ${getDisplayTimeframe(analysis.params.timeframe)}\n`;
+    }
 
     return response;
 }
@@ -1083,238 +1259,103 @@ function formatStatsResponse(results, analysis) {
             return "No data found matching your criteria.";
         }
 
-        // Process for count-style queries with isCount flag
+        // If this was a count query that got routed here, handle it simply.
         if (results.isCount) {
-            return `Total count: ${results.count || 0}`;
+            let countResponse = `Total ${analysis.params.countTarget || 'items'}: ${results.count || 0}`;
+            if (analysis.params.timeframe) {
+                countResponse += ` ${getDisplayTimeframe(analysis.params.timeframe)}`;
+            }
+            return countResponse;
         }
 
-        // Process for stats-style queries
         const { params } = analysis;
-        const statsTarget = params.statsTarget || params.countTarget || 'cases';
-        const department = params.department || 'all departments';
+        const stats = calculateAnalytics(results, params); //Leverages existing analytics
 
-        // Calculate various statistics
-        const stats = calculateAnalytics(results, params);
+        const timeframeDisplay = params.timeframe ? getDisplayTimeframe(params.timeframe) : "";
 
-        let response = `Statistics for ${statsTarget} in ${department}:\n\n`;
-        response += `Total records: ${Array.isArray(results) ? results.length : 0}\n\n`;
+        let response = `Total Cases ${timeframeDisplay}: ${stats.total}\n`;
 
         // Department breakdown
         if (stats.byDepartment && Object.keys(stats.byDepartment).length > 0) {
-            response += "By Department:\n";
+            // Ensure VALID_DEPARTMENTS are listed if possible, or just what's in byDepartment
+            // For now, iterates what's found. Add Health if it's a valid department.
+            // const departmentsToList = { ...VALID_DEPARTMENTS.reduce((acc, dept) => ({...acc, [dept]: 0 }), {}), ...stats.byDepartment };
             for (const [dept, count] of Object.entries(stats.byDepartment)) {
-                response += `- ${dept}: ${count}\n`;
+                if (count > 0) { // Only list departments with cases
+                    response += `- ${dept}: ${count}\n`;
+                }
             }
-            response += "\n";
         }
 
         // Status breakdown
         if (stats.byStatus && Object.keys(stats.byStatus).length > 0) {
-            response += "By Status:\n";
-            for (const [status, count] of Object.entries(stats.byStatus)) {
-                response += `- ${status}: ${count}\n`;
+            let statusParts = [];
+            // Desired order for statuses if possible, otherwise alphabetical or as they come.
+            const statusOrder = ['Pending', 'In Progress', 'Resolved', 'Escalated', 'Declined'];
+            
+            for (const statusName of statusOrder) {
+                if (stats.byStatus[statusName]) {
+                    statusParts.push(`${stats.byStatus[statusName]} ${statusName}`);
+                }
             }
-            response += "\n";
-        }
+            // Add any other statuses not in the preferred order
+            for (const [statusName, count] of Object.entries(stats.byStatus)) {
+                if (!statusOrder.includes(statusName) && count > 0) {
+                     statusParts.push(`${count} ${statusName}`);
+                }
+            }
 
-        // Priority breakdown
-        if (stats.byPriority && Object.keys(stats.byPriority).length > 0) {
-            response += "By Priority:\n";
-            for (const [priority, count] of Object.entries(stats.byPriority)) {
-                response += `- ${priority}: ${count}\n`;
+            if (statusParts.length > 0) {
+                response += `Status: ${statusParts.join(' | ' )}\n`;
             }
-            response += "\n";
         }
+        
+        // Note: The original formatStatsResponse had location and resource metrics.
+        // These are omitted here to match the user's requested format explicitly.
+        // If they are needed, they can be re-added.
 
-        // Location breakdown
-        if (stats.byLocation && Object.keys(stats.byLocation).length > 0) {
-            response += "By Location:\n";
-            for (const [location, count] of Object.entries(stats.byLocation)) {
-                response += `- ${location}: ${count}\n`;
-            }
-            response += "\n";
-        }
+        return response.trim(); // Trim any trailing newline
 
-        // Resource metrics when applicable
-        if ((stats.totalFunds !== undefined && stats.totalFunds > 0) ||
-            (stats.totalManpower !== undefined && stats.totalManpower > 0)) {
-            response += "Resource Metrics:\n";
-            if (stats.totalFunds !== undefined && stats.totalFunds > 0) {
-                response += `- Total Funds Required: ₹${stats.totalFunds.toLocaleString()}\n`;
-            }
-            if (stats.totalManpower !== undefined && stats.totalManpower > 0) {
-                response += `- Total Manpower Needed: ${stats.totalManpower} personnel\n`;
-            }
-            response += "\n";
-        }
-
-        return response;
     } catch (error) {
         console.error('Error formatting stats response:', error);
-        return `Statistics summary: Found ${Array.isArray(results) ? results.length : 0} records matching your criteria.`;
+        // Fallback to a simpler stats display in case of an error with the new format
+        const fallbackStats = calculateAnalytics(results, analysis.params);
+        return `Statistics Summary: Total Records: ${fallbackStats.total}. Departments: ${Object.keys(fallbackStats.byDepartment || {}).length}. Statuses: ${Object.keys(fallbackStats.byStatus || {}).length}. An error occurred formatting the detailed view.`;
     }
 }
 
-// Helper function to format resource response
-function formatResourceResponse(results, intent, analysis) {
+// Helper function to format official response
+function formatOfficialResponse(results, query, analysis) {
     if (results.length === 0) {
-        let message = "No resource requirements found matching your criteria.";
-        if (analysis.params.priority) {
-            message += ` (Priority: ${analysis.params.priority})`;
-        }
-        if (analysis.params.status) {
-            message += ` (Status: ${analysis.params.status})`;
-        }
-        return message;
+        return "No officials found matching the criteria.";
     }
 
-    // Group results by location
-    const groupedResults = {};
-    let totalManpower = 0;
-    let totalFunds = 0;
-
-    results.forEach(grievance => {
-        const location = [
-            grievance.district,
-            grievance.division,
-            grievance.taluk
-        ].filter(Boolean).join(' - ');
-
-        if (!groupedResults[location]) {
-            groupedResults[location] = {
-                cases: [],
-                totalManpower: 0,
-                totalFunds: 0,
-                requirements: new Set()
-            };
-        }
-
-        const group = groupedResults[location];
-        const resources = grievance.resourceManagement || {};
-
-        group.cases.push({
-            id: grievance.petitionId,
-            title: grievance.title,
-            status: grievance.status,
-            priority: grievance.priority,
-            manpower: resources.manpowerNeeded || 0,
-            funds: resources.fundsRequired || 0,
-            requirements: resources.requirementsNeeded
-        });
-
-        group.totalManpower += resources.manpowerNeeded || 0;
-        group.totalFunds += resources.fundsRequired || 0;
-        if (resources.requirementsNeeded) {
-            resources.requirementsNeeded.split(',').forEach(req =>
-                group.requirements.add(req.trim())
-            );
-        }
-
-        totalManpower += resources.manpowerNeeded || 0;
-        totalFunds += resources.fundsRequired || 0;
+    let response = `Found ${results.length} officials matching the criteria:\n`;
+    results.forEach((official, index) => {
+        response += `\n${index + 1}. ${official.name} - ${official.designation} (${official.department}, ${official.district})\n`;
     });
-
-    // Generate detailed response
-    let response = `Found ${results.length} grievance(s)`;
-    if (analysis.params.priority) {
-        response += ` with ${analysis.params.priority} priority`;
-    }
-    if (analysis.params.status) {
-        response += ` in ${analysis.params.status} status`;
-    }
-    response += ':\n\n';
-
-    // Location-wise breakdown
-    Object.entries(groupedResults).forEach(([location, data]) => {
-        response += `${location}:\n`;
-        response += `Total Requirements:\n`;
-        response += `- Manpower Needed: ${data.totalManpower} personnel\n`;
-        response += `- Funds Required: ₹${data.totalFunds.toLocaleString()}\n`;
-        if (data.requirements.size > 0) {
-            response += `- Equipment/Materials: ${Array.from(data.requirements).join(', ')}\n`;
-        }
-
-        response += '\nGrievance Details:\n';
-        data.cases.forEach((case_, index) => {
-            response += `${index + 1}. Case #${case_.id}: ${case_.title}\n`;
-            response += `   Status: ${case_.status}, Priority: ${case_.priority}\n`;
-            if (case_.manpower > 0) {
-                response += `   - Manpower: ${case_.manpower} personnel\n`;
-            }
-            if (case_.funds > 0) {
-                response += `   - Funds: ₹${case_.funds.toLocaleString()}\n`;
-            }
-            if (case_.requirements) {
-                response += `   - Requirements: ${case_.requirements}\n`;
-            }
-        });
-        response += '\n';
-    });
-
-    // Overall summary
-    response += '\nOverall Summary:\n';
-    response += `- Total Manpower Required: ${totalManpower} personnel\n`;
-    response += `- Total Funds Required: ₹${totalFunds.toLocaleString()}\n`;
-    response += `- Number of Locations: ${Object.keys(groupedResults).length}\n`;
-
-    // Add relevant suggestions based on current query
-    response += '\nYou can also:\n';
-    if (!analysis.params.priority) {
-        response += '1. Filter by priority (high/medium/low)\n';
-    }
-    if (!analysis.params.status) {
-        response += '2. Filter by status (pending/in progress/resolved/escalated)\n';
-    }
-    if (!analysis.params.division) {
-        response += '3. Filter by specific division\n';
-    }
-    if (!analysis.params.district) {
-        response += '4. Filter by specific district\n';
-    }
 
     return response;
 }
 
-// Fallback function for basic response generation
-function generateBasicResponse(results, query, analysis) {
+// Helper function to format case lookup response
+function formatCaseLookupResponse(results, query, analysis) {
     if (results.length === 0) {
-        return "I couldn't find any records matching your criteria. Would you like to try a different search?";
+        return "No case found with the provided ID.";
     }
 
-    const { intent, params } = analysis;
-    let response = `Found ${results.length} record(s)`;
-
-    if (params.department) {
-        response += ` in the ${params.department} department`;
-    }
-    if (params.district) {
-        response += ` from ${params.district}`;
-        if (params.division) {
-            response += ` - ${params.division} division`;
-        }
-    }
-    response += ".\n\n";
-
-    // Add a basic summary based on the first few results
-    const previewCount = Math.min(3, results.length);
-    response += `Here are the first ${previewCount}:\n`;
-
-    for (let i = 0; i < previewCount; i++) {
-        const item = results[i];
-        if (item.petitionId) {
-            // It's a grievance
-            response += `${i + 1}. Petition ${item.petitionId}: ${item.title}\n`;
-            response += `   Status: ${item.status}, Priority: ${item.priority}\n`;
-        } else if (item.employeeId) {
-            // It's an official
-            response += `${i + 1}. ${item.designation} ${item.firstName} ${item.lastName}\n`;
-            response += `   Department: ${item.department}\n`;
-        }
-    }
-
-    if (results.length > previewCount) {
-        response += `\n... and ${results.length - previewCount} more.`;
-    }
+    const grievance = results[0];
+    let response = `Case details for ID ${grievance._id}:\n`;
+    response += `Title: ${grievance.title}\n`;
+    response += `Status: ${grievance.status}\n`;
+    response += `Department: ${grievance.department}\n`;
+    response += `District: ${grievance.district}\n`;
+    response += `Taluk: ${grievance.taluk}\n`;
+    response += `Priority: ${grievance.priority}\n`;
+    response += `Created At: ${grievance.createdAt}\n`;
+    response += `Resource Management:\n`;
+    response += `  Funds Required: ${grievance.resourceManagement.fundsRequired}\n`;
+    response += `  Manpower Needed: ${grievance.resourceManagement.manpowerNeeded}\n`;
 
     return response;
 }
