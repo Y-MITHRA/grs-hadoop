@@ -11,6 +11,7 @@ import Login from './components/Login';
 import Register from './components/Register';
 import Dashboard from './components/Dashboard';
 import SubmitGrievance from './components/SubmitGrievance';
+import GrievanceDetails from './components/GrievanceDetails';
 import PrivateRoute from './components/PrivateRoute';
 
 const theme = createTheme({
@@ -123,6 +124,14 @@ function App() {
               element={
                 <PrivateRoute>
                   <SubmitGrievance />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/grievance/:id"
+              element={
+                <PrivateRoute>
+                  <GrievanceDetails />
                 </PrivateRoute>
               }
             />

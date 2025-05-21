@@ -2,10 +2,48 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 import { jwtDecode } from 'jwt-decode';
 
-const API_URL = 'http://localhost:5002/api'; // Water Portal server URL
+const API_URL = 'http://localhost:5002/api';
 
 // Configure axios defaults
 axios.defaults.withCredentials = true;
+
+// Add axios interceptor to add token to requests
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    console.log('Request config:', {
+      url: config.url,
+      method: config.method,
+      headers: config.headers
+    });
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for better error logging
+axios.interceptors.response.use(
+  (response) => {
+    console.log('Response:', {
+      status: response.status,
+      data: response.data
+    });
+    return response;
+  },
+  (error) => {
+    console.error('Response error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
+    return Promise.reject(error);
+  }
+);
 
 const AuthContext = createContext(null);
 
@@ -29,63 +67,55 @@ export const AuthProvider = ({ children }) => {
 
   const checkAuth = async () => {
     try {
-      // Try to use stored token if available
       const storedToken = localStorage.getItem('token');
 
       if (storedToken) {
-        // For local auth, use session cookies
+        // Verify token with backend
         const response = await axios.get(`${API_URL}/auth/me`);
         if (response.data) {
           setUser(response.data);
           setToken(storedToken);
-          localStorage.setItem('token', storedToken);
           setIsAuthenticated(true);
         } else {
-          setUser(null);
-          setToken(null);
-          localStorage.removeItem('token');
-          setIsAuthenticated(false);
+          handleLogout();
         }
       } else {
-        // No token found
-        setUser(null);
-        setToken(null);
-        setIsAuthenticated(false);
+        handleLogout();
       }
     } catch (error) {
       console.error("Auth check error:", error);
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem('token');
-      setIsAuthenticated(false);
+      handleLogout();
     } finally {
       setLoading(false);
     }
   };
 
+  const handleLogout = () => {
+    setUser(null);
+    setToken(null);
+    setIsAuthenticated(false);
+    localStorage.removeItem('token');
+  };
+
   const login = async (email, password) => {
     try {
-      // Get token from Water portal backend (update your API to return a token)
       const response = await axios.post(`${API_URL}/auth/login`, {
         email,
         password
       });
 
-      if (response.data.user) {
-        setUser(response.data.user);
+      const { user, token } = response.data;
 
-        // Request a token compatible with the main GRS system from our backend
-        const tokenResponse = await axios.get(`${API_URL}/auth/token`);
-        const mainToken = tokenResponse.data.token;
-
-        setToken(mainToken);
-        localStorage.setItem('token', mainToken);
-
+      if (user && token) {
+        setUser(user);
+        setToken(token);
+        localStorage.setItem('token', token);
         setIsAuthenticated(true);
         return response.data;
       }
-      throw new Error('Login failed');
+      throw new Error('Login failed - Invalid response format');
     } catch (error) {
+      console.error('Login error:', error);
       throw error.response?.data || { message: 'Login failed' };
     }
   };
@@ -97,21 +127,19 @@ export const AuthProvider = ({ children }) => {
         email,
         password
       });
-      if (response.data.user) {
-        setUser(response.data.user);
 
-        // Request a token compatible with the main GRS system from our backend 
-        const tokenResponse = await axios.get(`${API_URL}/auth/token`);
-        const mainToken = tokenResponse.data.token;
+      const { user, token } = response.data;
 
-        setToken(mainToken);
-        localStorage.setItem('token', mainToken);
-
+      if (user && token) {
+        setUser(user);
+        setToken(token);
+        localStorage.setItem('token', token);
         setIsAuthenticated(true);
         return response.data;
       }
-      throw new Error('Registration failed');
+      throw new Error('Registration failed - Invalid response format');
     } catch (error) {
+      console.error('Registration error:', error);
       throw error.response?.data || { message: 'Registration failed' };
     }
   };
@@ -119,12 +147,10 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await axios.post(`${API_URL}/auth/logout`);
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem('token');
-      setIsAuthenticated(false);
     } catch (error) {
       console.error('Logout error:', error);
+    } finally {
+      handleLogout();
     }
   };
 

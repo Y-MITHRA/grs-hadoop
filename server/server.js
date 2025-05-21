@@ -18,21 +18,25 @@ const app = express();
 app.use(express.json());
 app.use(cors({
   origin: [
-    'http://localhost:3000', // Main GRS portal
-    'http://localhost:3001', // RTO Portal
-    'http://localhost:3002', // Water Portal
-    'http://localhost:3003'  // Admin Portal
+    'http://localhost:3000',  // Main GRS portal
+    'http://localhost:3001',  // RTO Portal
+    'http://localhost:3002',  // Water Portal frontend
+    'http://localhost:5002'   // Water Portal backend
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 
 // Handle preflight requests
 app.options('*', cors());
+
+// Add route logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 // Session configuration
 app.use(session({
@@ -50,10 +54,38 @@ app.use(session({
   }
 }));
 
-// MongoDB connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/grievance_portal')
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+// MongoDB connection with proper error handling
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/water_db', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+  .then(() => {
+    console.log('Connected to MongoDB');
+  })
+  .catch(err => {
+    console.error('MongoDB connection error:', err);
+    process.exit(1);
+  });
+
+// Handle MongoDB connection events
+mongoose.connection.on('error', err => {
+  console.error('MongoDB error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected');
+});
+
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed through app termination');
+    process.exit(0);
+  } catch (err) {
+    console.error('Error closing MongoDB connection:', err);
+    process.exit(1);
+  }
+});
 
 // IMPORTANT: Hardcoded to exactly match main-grs JWT_SECRET
 // DO NOT change this value as it must match the main system exactly
@@ -325,13 +357,21 @@ const upload = multer({
   }
 });
 
-// Authentication middleware
-const isAuthenticated = (req, res, next) => {
-  if (!req.session || !req.session.userId) {
-    console.log('No session or userId found:', req.session);
-    return res.status(401).json({ message: 'Not authenticated' });
+// Authentication middleware using JWT
+const authenticateJWT = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Invalid token' });
   }
-  next();
 };
 
 // Routes
@@ -386,7 +426,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Login
+// Login route - updated to return JWT token
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -401,7 +441,18 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    req.session.userId = user._id;
+    // Create JWT token
+    const token = jwt.sign(
+      {
+        id: user._id.toString(),
+        role: 'petitioner',
+        department: 'Water',
+        email: user.email,
+        name: user.name
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
     // Synchronize user with main GRS system
     try {
@@ -409,7 +460,6 @@ app.post('/api/auth/login', async (req, res) => {
       console.log('User synchronized with main GRS system');
     } catch (syncError) {
       console.error('Failed to sync user with main GRS:', syncError);
-      // Continue anyway - we don't want to block login if sync fails
     }
 
     res.json({
@@ -420,10 +470,12 @@ app.post('/api/auth/login', async (req, res) => {
         name: user.name,
         phone: user.phone,
         role: user.role
-      }
+      },
+      token
     });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Login error:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
@@ -437,19 +489,23 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// Get current user
-app.get('/api/auth/user', isAuthenticated, async (req, res) => {
+// Get current user route - updated to use JWT
+app.get('/api/auth/me', authenticateJWT, async (req, res) => {
   try {
-    const user = await User.findById(req.session.userId).select('-password');
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
     res.json(user);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Auth check error:', error);
+    res.status(500).json({ message: 'Authentication failed' });
   }
 });
 
 // Grievance routes
 // Submit grievance
-app.post('/api/grievances', isAuthenticated, upload.array('attachments', 5), async (req, res) => {
+app.post('/api/grievances', authenticateJWT, upload.array('attachments', 5), async (req, res) => {
   try {
     const { title, description, location, coordinates } = req.body;
 
@@ -486,7 +542,7 @@ app.post('/api/grievances', isAuthenticated, upload.array('attachments', 5), asy
       description: description.trim(),
       location: location.trim(),
       coordinates: coordinates ? JSON.parse(coordinates) : null,
-      petitioner: req.session.userId,
+      petitioner: req.user.id,
       status: 'pending',
       assignedOfficials: nearestOfficeOfficials
     });
@@ -504,41 +560,53 @@ app.post('/api/grievances', isAuthenticated, upload.array('attachments', 5), asy
   }
 });
 
-// Get user's grievances
-app.get('/api/grievances', isAuthenticated, async (req, res) => {
+// Get user's grievances - updated to use JWT
+app.get('/api/grievances', authenticateJWT, async (req, res) => {
   try {
     const grievances = await Grievance.find({
-      petitioner: req.session.userId,
-      department: 'Water'
-    }).sort({ createdAt: -1 });
-    res.json(grievances);
+      petitioner: req.user.id
+    })
+      .sort({ createdAt: -1 })
+      .populate('assignedTo', 'name department')
+      .populate('assignedOfficials', 'name department');
+
+    res.json({ grievances });
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error fetching grievances:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
-// Get single grievance
-app.get('/api/grievances/:id', isAuthenticated, async (req, res) => {
+// Get single grievance - updated to use JWT
+app.get('/api/grievances/:id', authenticateJWT, async (req, res) => {
   try {
-    const grievance = await Grievance.findOne({
-      _id: req.params.id,
-      userId: req.session.userId
-    });
+    const grievance = await Grievance.findById(req.params.id)
+      .populate('assignedTo', 'name department')
+      .populate('assignedOfficials', 'name department');
 
     if (!grievance) {
       return res.status(404).json({ message: 'Grievance not found' });
     }
 
+    // Check if the user has access to this grievance
+    if (grievance.petitioner.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
     res.json(grievance);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error fetching grievance:', error);
+    if (error.name === 'CastError') {
+      return res.status(404).json({ message: 'Invalid grievance ID format' });
+    }
+    res.status(500).json({ message: error.message });
   }
 });
 
 // Generate a JWT token for the main GRS system
-app.get('/api/auth/token', isAuthenticated, async (req, res) => {
+app.get('/api/auth/token', authenticateJWT, async (req, res) => {
   try {
-    const user = await User.findById(req.session.userId);
+    const user = await User.findById(req.user.id);
 
     if (!user) {
       return res.status(401).json({ message: 'Authentication required' });
@@ -574,30 +642,8 @@ app.get('/api/auth/token', isAuthenticated, async (req, res) => {
   }
 });
 
-// Also add a route to check current authentication status
-app.get('/api/auth/me', isAuthenticated, async (req, res) => {
-  try {
-    const user = await User.findById(req.session.userId).select('-password');
-
-    if (!user) {
-      return res.status(401).json({ message: 'Authentication required' });
-    }
-
-    res.json({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role || 'petitioner',
-      department: user.department || 'Water'
-    });
-  } catch (error) {
-    console.error('Auth check error:', error);
-    res.status(500).json({ message: 'Authentication failed' });
-  }
-});
-
 // Proxy route that forwards grievance submissions to the Main GRS system
-app.post('/api/proxy/grievances', isAuthenticated, upload.array('attachments', 5), async (req, res) => {
+app.post('/api/proxy/grievances', authenticateJWT, upload.array('attachments', 5), async (req, res) => {
   try {
     const { title, description, district, division, taluk } = req.body;
     const department = 'Water Department';
@@ -617,7 +663,7 @@ app.post('/api/proxy/grievances', isAuthenticated, upload.array('attachments', 5
     formDataToSend.append('taluk', taluk);
 
     // Get user from database
-    const user = await User.findById(req.session.userId);
+    const user = await User.findById(req.user.id);
     if (!user) {
       return res.status(401).json({ message: 'User not found' });
     }
@@ -675,7 +721,34 @@ function generateServiceToken() {
   return jwt.sign(payload, JWT_SECRET, { algorithm: 'HS256' });
 }
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Update port configuration
+const PORT = process.env.PORT || 5002;
+
+// Create server with proper error handling
+const server = app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+  console.log('Available routes:');
+  console.log('- POST /api/auth/login');
+  console.log('- POST /api/auth/register');
+  console.log('- GET /api/auth/me');
+  console.log('- GET /api/grievances');
+  console.log('- GET /api/grievances/:id');
+});
+
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Please try a different port or close the application using this port.`);
+  } else {
+    console.error('Server error:', error);
+  }
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled Promise Rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
 });
